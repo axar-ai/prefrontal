@@ -83,3 +83,59 @@ impl BuiltinModel {
 pub fn init_logger() {
     env_logger::init();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+
+    #[test]
+    fn test_classifier_thread_safety() {
+        let classifier = Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)
+            .unwrap()
+            .add_class("test", vec!["example text"])
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let classifier = Arc::new(classifier);
+        let mut handles = vec![];
+        
+        // Spawn multiple threads that use the classifier concurrently
+        for i in 0..3 {
+            let classifier = Arc::clone(&classifier);
+            let handle = thread::spawn(move || {
+                let text = match i {
+                    0 => "test example",
+                    1 => "another test",
+                    _ => "final test",
+                };
+                classifier.predict(text).unwrap()
+            });
+            handles.push(handle);
+        }
+        
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_classifier_clone_and_send() {
+        let classifier = Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)
+            .unwrap()
+            .add_class("test", vec!["example text"])
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        // Test that classifier can be sent to another thread
+        thread::spawn(move || {
+            classifier.predict("test").unwrap();
+        }).join().unwrap();
+    }
+}

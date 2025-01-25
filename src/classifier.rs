@@ -103,11 +103,11 @@ impl TextEmbedding for ClassifierBuilder {
 
 impl TextEmbedding for Classifier {
     fn tokenizer(&self) -> Option<&Tokenizer> {
-        Some(&self.tokenizer)
+        Some(&*self.tokenizer)
     }
     
     fn session(&self) -> Option<&Session> {
-        Some(&self.session)
+        Some(&*self.session)
     }
 
     fn max_sequence_length(&self) -> Option<usize> {
@@ -352,10 +352,10 @@ impl ClassifierBuilder {
         }
 
         // Now we can safely take ownership of tokenizer and session
-        let tokenizer = self.tokenizer.take()
-            .ok_or_else(|| ClassifierError::BuildError("No tokenizer loaded".into()))?;
-        let session = self.session.take()
-            .ok_or_else(|| ClassifierError::BuildError("No ONNX model loaded".into()))?;
+        let tokenizer = Arc::new(self.tokenizer.take()
+            .ok_or_else(|| ClassifierError::BuildError("No tokenizer loaded".into()))?);
+        let session = Arc::new(self.session.take()
+            .ok_or_else(|| ClassifierError::BuildError("No ONNX model loaded".into()))?);
 
         // Process the embeddings into prototypes
         for (label, embedded_examples) in class_embeddings {
@@ -369,21 +369,28 @@ impl ClassifierBuilder {
             tokenizer_path: self.tokenizer_path.take().unwrap(),
             tokenizer,
             session,
-            embedded_prototypes,
+            embedded_prototypes: Arc::new(embedded_prototypes),
             model_characteristics,
         })
     }
 }
 
-/// A text classifier that uses ONNX models for embedding and classification.
+/// A thread-safe text classifier that uses ONNX models for embedding and classification.
+/// 
+/// This classifier is safe to share across threads and can handle concurrent classification
+/// requests. The underlying ONNX session and tokenizer are thread-safe.
 pub struct Classifier {
     model_path: String,
     tokenizer_path: String,
-    tokenizer: Tokenizer,
-    session: Session,
-    embedded_prototypes: HashMap<String, Array1<f32>>,
+    tokenizer: Arc<Tokenizer>,
+    session: Arc<Session>,
+    embedded_prototypes: Arc<HashMap<String, Array1<f32>>>,
     model_characteristics: ModelCharacteristics,
 }
+
+// Explicitly implement Send + Sync
+unsafe impl Send for Classifier {}
+unsafe impl Sync for Classifier {}
 
 impl Classifier {
     /// Creates a new ClassifierBuilder for fluent construction
@@ -456,7 +463,7 @@ impl Classifier {
             .ok_or_else(|| ClassifierError::ValidationError("Failed to generate embedding from text".into()))?;
         
         let mut scores = HashMap::new();
-        for (label, prototype) in &self.embedded_prototypes {
+        for (label, prototype) in self.embedded_prototypes.as_ref() {
             let similarity = Self::cosine_similarity(&input_vector, prototype);
             scores.insert(label.clone(), similarity);
         }

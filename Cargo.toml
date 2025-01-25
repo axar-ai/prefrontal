@@ -14,15 +14,16 @@ path = "src/main.rs"
 
 [dependencies]
 # Core dependencies
-ndarray = "0.15.6"
 tokenizers = "0.15"
+ort = "1.16.3"
+ndarray = "0.15"
 log = "0.4"
-env_logger = "0.10"
+env_logger = "0.11"
 anyhow = "1.0"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 cbindgen = "0.26"
-ort = "1.16.3"
+tokio = { version = "1.36", features = ["full"] }
 
 [[bench]]
 name = "classifier_benchmark"
@@ -30,6 +31,7 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.5"
+tokio-test = "0.4"
 
 [build-dependencies]
 cbindgen = "0.26"
