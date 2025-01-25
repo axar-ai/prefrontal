@@ -134,6 +134,27 @@ impl ClassifierBuilder {
         }
     }
 
+    /// Validates that the model has the expected input/output structure
+    fn validate_model(session: &Session) -> Result<(), ClassifierError> {
+        // Check inputs
+        let inputs = &session.inputs;
+        if inputs.len() < 2 {
+            return Err(ClassifierError::ModelError(
+                format!("Model must have at least 2 inputs (input_ids and attention_mask), found {}", inputs.len())
+            ));
+        }
+
+        // Check outputs
+        let outputs = &session.outputs;
+        if outputs.is_empty() {
+            return Err(ClassifierError::ModelError(
+                "Model must have at least 1 output for embeddings".to_string()
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Sets the model to use for classification
     pub fn with_model(mut self, model: BuiltinModel) -> Result<Self, ClassifierError> {
         if self.model_path.is_some() || self.tokenizer_path.is_some() {
@@ -168,7 +189,10 @@ impl ClassifierBuilder {
         
         let session = SessionBuilder::new(&env)?
             .with_model_from_file(model_path)?;
-        info!("ONNX model loaded successfully");
+
+        // Validate model structure
+        Self::validate_model(&session)?;
+        info!("Model structure validated successfully");
         
         self.model_path = Some(model_path.to_string());
         self.tokenizer_path = Some(tokenizer_path.to_string());
@@ -215,6 +239,10 @@ impl ClassifierBuilder {
         
         let session = SessionBuilder::new(&env)?
             .with_model_from_file(model_path)?;
+
+        // Validate model structure
+        Self::validate_model(&session)?;
+        info!("Model structure validated successfully");
         
         // Store session and tokenizer temporarily
         self.tokenizer = Some(tokenizer);
