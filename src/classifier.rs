@@ -137,9 +137,8 @@ impl ClassifierBuilder {
         Ok(self)
     }
 
-    /// Adds a class with example texts
-    pub fn add_class(mut self, label: &str, examples: Vec<&str>) -> Result<Self, ClassifierError> {
-        // Validate inputs first
+    // Private helper to validate class data
+    fn validate_class_data(label: &str, examples: &[impl AsRef<str>]) -> Result<(), ClassifierError> {
         if label.is_empty() {
             return Err(ClassifierError::ValidationError("Class label cannot be empty".into()));
         }
@@ -147,13 +146,19 @@ impl ClassifierBuilder {
             return Err(ClassifierError::ValidationError(format!("Class '{}' has no examples", label)));
         }
         for (i, example) in examples.iter().enumerate() {
-            if example.is_empty() {
+            if example.as_ref().is_empty() {
                 return Err(ClassifierError::ValidationError(
                     format!("Empty example {} in class '{}'", i + 1, label)
                 ));
             }
         }
+        Ok(())
+    }
 
+    /// Adds a class with example texts
+    pub fn add_class(mut self, label: &str, examples: Vec<&str>) -> Result<Self, ClassifierError> {
+        Self::validate_class_data(label, &examples)?;
+        
         let examples: Vec<String> = examples.into_iter()
             .map(String::from)
             .collect();
@@ -178,21 +183,9 @@ impl ClassifierBuilder {
             return Err(ClassifierError::ValidationError("No classes added. Add at least one class with examples".into()));
         }
 
-        // Validate class data
+        // Validate all class data
         for (label, examples) in &self.class_examples {
-            if label.is_empty() {
-                return Err(ClassifierError::ValidationError("Class label cannot be empty".into()));
-            }
-            if examples.is_empty() {
-                return Err(ClassifierError::ValidationError(format!("Class '{}' has no examples", label)));
-            }
-            for (i, example) in examples.iter().enumerate() {
-                if example.is_empty() {
-                    return Err(ClassifierError::ValidationError(
-                        format!("Empty example {} in class '{}'", i + 1, label)
-                    ));
-                }
-            }
+            Self::validate_class_data(label, examples)?;
         }
 
         let mut embedded_prototypes = HashMap::new();
