@@ -41,20 +41,24 @@ impl ClassifierBuilder {
         };
 
         // Initialize ONNX Runtime
-        let session = match Environment::builder()
+        let session = Environment::builder()
             .with_name("text_classifier")
             .build()
             .map(|env| Arc::new(env))
-            .and_then(|env| SessionBuilder::new(&env).unwrap().with_model_from_file(model_path)) {
-                Ok(sess) => {
-                    info!("ONNX model loaded successfully");
-                    Some(sess)
-                },
-                Err(e) => {
+            .and_then(|env| {
+                SessionBuilder::new(&env)
+                    .and_then(|builder| builder.with_model_from_file(model_path))
+            })
+            .map_or_else(
+                |e| {
                     error!("Failed to load ONNX model: {}", e);
                     None
+                },
+                |sess| {
+                    info!("ONNX model loaded successfully");
+                    Some(sess)
                 }
-        };
+            );
 
         self.model_path = Some(model_path.to_string());
         self.tokenizer_path = Some(tokenizer_path.to_string());
@@ -79,20 +83,24 @@ impl ClassifierBuilder {
         };
 
         // Initialize ONNX Runtime
-        let session = match Environment::builder()
+        let session = Environment::builder()
             .with_name("text_classifier")
             .build()
             .map(|env| Arc::new(env))
-            .and_then(|env| SessionBuilder::new(&env).unwrap().with_model_from_file(model_path)) {
-                Ok(sess) => {
-                    info!("ONNX model loaded successfully");
-                    Some(sess)
-                },
-                Err(e) => {
+            .and_then(|env| {
+                SessionBuilder::new(&env)
+                    .and_then(|builder| builder.with_model_from_file(model_path))
+            })
+            .map_or_else(
+                |e| {
                     error!("Failed to load ONNX model: {}", e);
                     None
+                },
+                |sess| {
+                    info!("ONNX model loaded successfully");
+                    Some(sess)
                 }
-        };
+            );
 
         self.model_path = Some(model_path.to_string());
         self.tokenizer_path = Some(tokenizer_path.to_string());
