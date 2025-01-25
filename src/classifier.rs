@@ -6,6 +6,7 @@ use log::{info, error};
 use std::sync::Arc;
 use crate::ClassifierError;
 use crate::BuiltinModel;
+use crate::ModelCharacteristics;
 
 /// A builder for constructing a Classifier with a fluent interface.
 #[derive(Default, Debug)]
@@ -15,6 +16,7 @@ pub struct ClassifierBuilder {
     tokenizer: Option<Tokenizer>,
     session: Option<Session>,
     class_examples: HashMap<String, Vec<String>>,
+    model_characteristics: Option<ModelCharacteristics>,
 }
 
 /// Private trait for embedding functionality
@@ -100,6 +102,7 @@ impl ClassifierBuilder {
             tokenizer: None,
             session: None,
             class_examples: HashMap::new(),
+            model_characteristics: None,
         }
     }
 
@@ -109,6 +112,9 @@ impl ClassifierBuilder {
             return Err(ClassifierError::BuildError("Model and tokenizer paths already set".to_string()));
         }
         let (model_path, tokenizer_path) = model.get_paths();
+        
+        // Store model characteristics
+        self.model_characteristics = Some(model.characteristics());
         
         // Validate paths exist
         if !std::path::Path::new(model_path).exists() {
@@ -176,12 +182,28 @@ impl ClassifierBuilder {
         
         let session = SessionBuilder::new(&env)?
             .with_model_from_file(model_path)?;
-        info!("ONNX model loaded successfully");
+        
+        // Store session and tokenizer temporarily
+        self.tokenizer = Some(tokenizer);
+        self.session = Some(session);
+        
+        // Infer embedding size by running a test input
+        let test_text = "Test input to infer embedding size";
+        let embedding = self.embed_text(test_text)
+            .ok_or_else(|| ClassifierError::BuildError("Failed to infer embedding size from model".to_string()))?;
+        
+        let embedding_size = embedding.len();
+        info!("Inferred embedding size from model: {}", embedding_size);
+        
+        // Set model characteristics
+        self.model_characteristics = Some(ModelCharacteristics {
+            embedding_size,
+            max_sequence_length: 256, // Default value, could be made configurable
+            model_size_mb: 0, // Not critical for functionality
+        });
         
         self.model_path = Some(model_path.to_string());
         self.tokenizer_path = Some(tokenizer_path.to_string());
-        self.tokenizer = Some(tokenizer);
-        self.session = Some(session);
         Ok(self)
     }
 
@@ -230,6 +252,10 @@ impl ClassifierBuilder {
             return Err(ClassifierError::BuildError("At least one class must be added".to_string()));
         }
 
+        let model_characteristics = self.model_characteristics
+            .clone()
+            .ok_or_else(|| ClassifierError::BuildError("Model characteristics not set".to_string()))?;
+
         // Validate all class data
         for (label, examples) in &self.class_examples {
             Self::validate_class_data(label, examples)?;
@@ -272,7 +298,7 @@ impl ClassifierBuilder {
 
         // Process the embeddings into prototypes
         for (label, embedded_examples) in class_embeddings {
-            let avg_vector = Classifier::average_vectors(&embedded_examples);
+            let avg_vector = Classifier::average_vectors(&embedded_examples, model_characteristics.embedding_size);
             let prototype = Classifier::normalize_vector(&avg_vector);
             embedded_prototypes.insert(label, prototype);
         }
@@ -283,6 +309,7 @@ impl ClassifierBuilder {
             tokenizer,
             session,
             embedded_prototypes,
+            model_characteristics,
         })
     }
 }
@@ -294,6 +321,7 @@ pub struct Classifier {
     tokenizer: Tokenizer,
     session: Session,
     embedded_prototypes: HashMap<String, Array1<f32>>,
+    model_characteristics: ModelCharacteristics,
 }
 
 impl Classifier {
@@ -310,11 +338,7 @@ impl Classifier {
             tokenizer_path: self.tokenizer_path.clone(),
             num_classes: self.embedded_prototypes.len(),
             class_labels: self.embedded_prototypes.keys().cloned().collect(),
-            embedding_size: self.embedded_prototypes
-                .values()
-                .next()
-                .map(|v| v.len())
-                .unwrap_or(0),
+            embedding_size: self.model_characteristics.embedding_size,
         }
     }
 
@@ -328,9 +352,9 @@ impl Classifier {
         }
     }
 
-    fn average_vectors(vectors: &[Array1<f32>]) -> Array1<f32> {
+    fn average_vectors(vectors: &[Array1<f32>], embedding_size: usize) -> Array1<f32> {
         if vectors.is_empty() {
-            return Array1::zeros(384);
+            return Array1::zeros(embedding_size);
         }
         let sum = vectors.iter().fold(Array1::zeros(vectors[0].len()), |acc, v| acc + v);
         sum / vectors.len() as f32
