@@ -1,0 +1,43 @@
+[package]
+name = "text_classifier"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "text_classifier"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "text_classifier_bin"
+path = "src/main.rs"
+
+[dependencies]
+# Core dependencies
+ndarray = "0.15"
+tokenizers = "0.15"
+log = "0.4"
+env_logger = "0.10"
+anyhow = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+cbindgen = "0.26"
+rand = "0.8"
+ort = { version = "1.16.2", features = ["load-dynamic"] }  # ONNX Runtime
+
+[[bench]]
+name = "classifier_benchmark"
+harness = false
+
+[dev-dependencies]
+criterion = "0.5"
+
+[build-dependencies]
+cbindgen = "0.26"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
