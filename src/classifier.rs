@@ -6,6 +6,29 @@ use ndarray::{Array2};
 use std::sync::Arc;
 use log::{info, warn, error, debug, trace};
 
+#[derive(Debug)]
+pub enum ClassifierError {
+    TokenizerError(String),
+    ModelError(String),
+    BuildError(String),
+    PredictionError(String),
+    ValidationError(String),
+}
+
+impl std::fmt::Display for ClassifierError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TokenizerError(msg) => write!(f, "Tokenizer error: {}", msg),
+            Self::ModelError(msg) => write!(f, "Model error: {}", msg),
+            Self::BuildError(msg) => write!(f, "Build error: {}", msg),
+            Self::PredictionError(msg) => write!(f, "Prediction error: {}", msg),
+            Self::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ClassifierError {}
+
 #[allow(dead_code)]
 pub struct Classifier {
     model_path: String,
@@ -17,8 +40,16 @@ pub struct Classifier {
 }
 
 impl Classifier {
-    pub fn new(model_path: &str, tokenizer_path: &str) -> Self {
+    pub fn new(model_path: &str, tokenizer_path: &str) -> Result<Self, ClassifierError> {
         debug!("Creating new classifier");
+        
+        if model_path.is_empty() {
+            return Err(ClassifierError::ValidationError("Model path cannot be empty".to_string()));
+        }
+        if tokenizer_path.is_empty() {
+            return Err(ClassifierError::ValidationError("Tokenizer path cannot be empty".to_string()));
+        }
+        
         info!("Model path: {}", model_path);
         info!("Tokenizer path: {}", tokenizer_path);
         
@@ -31,7 +62,7 @@ impl Classifier {
             },
             Err(e) => {
                 error!("Failed to load tokenizer: {}", e);
-                None
+                return Err(ClassifierError::TokenizerError(e.to_string()));
             }
         };
 
@@ -40,7 +71,7 @@ impl Classifier {
         let session = match Environment::builder()
             .with_name("text_classifier")
             .build()
-            .map(|env| Arc::new(env))  // Wrap in Arc
+            .map(|env| Arc::new(env))
             .and_then(|env| SessionBuilder::new(&env)?.with_model_from_file(model_path)) {
                 Ok(sess) => {
                     info!("ONNX model loaded successfully");
@@ -48,29 +79,38 @@ impl Classifier {
                 },
                 Err(e) => {
                     error!("Failed to load ONNX model: {}", e);
-                    None
+                    return Err(ClassifierError::ModelError(e.to_string()));
                 }
         };
         
-        let classifier = Self {
+        info!("Classifier created successfully");
+        Ok(Self {
             model_path: model_path.to_string(),
             tokenizer_path: tokenizer_path.to_string(),
             tokenizer,
             session,
             class_prototypes: HashMap::new(),
             embedded_prototypes: HashMap::new(),
-        };
-        
-        info!("Classifier created successfully");
-        classifier
+        })
     }
 
-    pub fn add_class(&mut self, label: &str, examples: Vec<&str>) {
+    pub fn add_class(&mut self, label: &str, examples: Vec<&str>) -> Result<(), ClassifierError> {
         info!("\n=== Adding Class ===");
+        
+        if label.is_empty() {
+            return Err(ClassifierError::ValidationError("Label cannot be empty".to_string()));
+        }
+        if examples.is_empty() {
+            return Err(ClassifierError::ValidationError("Must provide at least one example".to_string()));
+        }
+        
         info!("Label: {}", label);
         info!("Number of examples: {}", examples.len());
         info!("Examples:");
         for (i, ex) in examples.iter().enumerate() {
+            if ex.is_empty() {
+                return Err(ClassifierError::ValidationError(format!("Example {} cannot be empty", i + 1)));
+            }
             info!("  {}: {}", i + 1, ex);
         }
         
@@ -88,6 +128,8 @@ impl Classifier {
         for (l, exs) in &self.class_prototypes {
             info!("Class '{}': {} examples", l, exs.len());
         }
+        
+        Ok(())
     }
 
     fn normalize_vector(vec: &Array1<f32>) -> Array1<f32> {
