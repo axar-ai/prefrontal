@@ -9,10 +9,10 @@ fn get_test_paths() -> (PathBuf, PathBuf) {
 
 #[test]
 fn test_end_to_end_classification() -> Result<(), Box<dyn std::error::Error>> {
-    let mut classifier = Classifier::with_builtin(BuiltinModel::MiniLM)?;
-
-    classifier.add_class("sports", vec!["football game", "basketball match"])?;
-    classifier.build()?;
+    let classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)
+        .add_class("sports", vec!["football game", "basketball match"])
+        .build()?;
 
     let (class, scores) = classifier.predict("soccer match")?;
     
@@ -25,13 +25,13 @@ fn test_end_to_end_classification() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_custom_model_paths() -> Result<(), Box<dyn std::error::Error>> {
     let (model_path, tokenizer_path) = get_test_paths();
-    let mut classifier = Classifier::with_custom(
-        model_path.to_str().unwrap(),
-        tokenizer_path.to_str().unwrap()
-    )?;
-
-    classifier.add_class("sports", vec!["football game", "basketball match"])?;
-    classifier.build()?;
+    let classifier = Classifier::builder()
+        .with_custom_model(
+            model_path.to_str().unwrap(),
+            tokenizer_path.to_str().unwrap()
+        )
+        .add_class("sports", vec!["football game", "basketball match"])
+        .build()?;
 
     let (class, scores) = classifier.predict("soccer match")?;
     
@@ -44,14 +44,14 @@ fn test_custom_model_paths() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_multiple_classes_custom_paths() -> Result<(), Box<dyn std::error::Error>> {
     let (model_path, tokenizer_path) = get_test_paths();
-    let mut classifier = Classifier::with_custom(
-        model_path.to_str().unwrap(),
-        tokenizer_path.to_str().unwrap()
-    )?;
-
-    classifier.add_class("sports", vec!["football game", "basketball match"])?;
-    classifier.add_class("tech", vec!["computer program", "software code"])?;
-    classifier.build()?;
+    let classifier = Classifier::builder()
+        .with_custom_model(
+            model_path.to_str().unwrap(),
+            tokenizer_path.to_str().unwrap()
+        )
+        .add_class("sports", vec!["football game", "basketball match"])
+        .add_class("tech", vec!["computer program", "software code"])
+        .build()?;
 
     let (class_sports, scores_sports) = classifier.predict("soccer match")?;
     let (class_tech, scores_tech) = classifier.predict("python programming")?;
@@ -91,21 +91,19 @@ fn test_builtin_model_characteristics() {
 #[test]
 fn test_same_results_builtin_and_custom() -> Result<(), Box<dyn std::error::Error>> {
     // Create two classifiers - one with built-in model and one with custom paths
-    let mut builtin = Classifier::with_builtin(BuiltinModel::MiniLM)?;
+    let builtin = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)
+        .add_class("sports", vec!["football game", "basketball match"])
+        .build()?;
+
     let (model_path, tokenizer_path) = get_test_paths();
-    let mut custom = Classifier::with_custom(
-        model_path.to_str().unwrap(),
-        tokenizer_path.to_str().unwrap()
-    )?;
-
-    // Add same classes to both
-    let examples = vec!["football game", "basketball match"];
-    builtin.add_class("sports", examples.clone())?;
-    custom.add_class("sports", examples)?;
-
-    // Build both classifiers
-    builtin.build()?;
-    custom.build()?;
+    let custom = Classifier::builder()
+        .with_custom_model(
+            model_path.to_str().unwrap(),
+            tokenizer_path.to_str().unwrap()
+        )
+        .add_class("sports", vec!["football game", "basketball match"])
+        .build()?;
 
     // Make predictions with both
     let (class1, scores1) = builtin.predict("soccer match")?;

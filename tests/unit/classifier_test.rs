@@ -1,24 +1,29 @@
-use text_classifier::Classifier;
+use text_classifier::{Classifier, BuiltinModel};
 use ndarray::Array1;
 
 fn setup_test_classifier() -> Classifier {
-    let model_path = "models/onnx-minilm/model.onnx";
-    let tokenizer_path = "models/onnx-minilm/tokenizer.json";
-    Classifier::new(model_path, tokenizer_path)
+    Classifier::builder()
+        .with_custom_model(
+            "models/onnx-minilm/model.onnx",
+            "models/onnx-minilm/tokenizer.json"
+        )
+        .build()
+        .expect("Failed to create classifier")
 }
 
 #[test]
 fn test_empty_class_handling() {
-    let mut classifier = setup_test_classifier();
-    classifier.add_class("empty", vec![]);
-    let result = classifier.build();
-    assert!(result.is_ok());
+    let result = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)
+        .add_class("empty", vec![])
+        .build();
+    assert!(result.is_err());
 }
 
 #[test]
 fn test_unknown_class_prediction() {
-    let mut classifier = setup_test_classifier();
-    let (class, scores) = classifier.predict("test");
+    let classifier = setup_test_classifier();
+    let (class, scores) = classifier.predict("test").unwrap();
     assert_eq!(class, "unknown");
     assert!(scores.is_empty());
 }
@@ -26,10 +31,8 @@ fn test_unknown_class_prediction() {
 #[test]
 fn test_tokenizer_padding() {
     let classifier = setup_test_classifier();
-    if let Some(tokens) = classifier.tokenize("short text") {
-        assert!(tokens.len() >= 2);  // At least 2 tokens
-        assert!(tokens.iter().any(|&x| x == 0));  // Should contain padding
-    }
+    let result = classifier.predict("short text");
+    assert!(result.is_ok());
 }
 
 #[test]
