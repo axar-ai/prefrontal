@@ -92,10 +92,8 @@ impl ClassifierBuilder {
         Self::default()
     }
 
-    /// Sets the model to use for classification
-    pub fn with_model(mut self, model: BuiltinModel) -> Self {
-        let (model_path, tokenizer_path) = model.get_paths();
-        
+    // Private helper to load model and tokenizer
+    fn load_model(&mut self, model_path: &str, tokenizer_path: &str) {
         // Load tokenizer
         let tokenizer = match Tokenizer::from_file(tokenizer_path) {
             Ok(tok) => {
@@ -132,49 +130,18 @@ impl ClassifierBuilder {
         self.tokenizer_path = Some(tokenizer_path.to_string());
         self.tokenizer = tokenizer;
         self.session = session;
-        
+    }
+
+    /// Sets the model to use for classification
+    pub fn with_model(mut self, model: BuiltinModel) -> Self {
+        let (model_path, tokenizer_path) = model.get_paths();
+        self.load_model(model_path, tokenizer_path);
         self
     }
 
     /// Sets a custom model and tokenizer path
     pub fn with_custom_model(mut self, model_path: &str, tokenizer_path: &str) -> Self {
-        // Load tokenizer
-        let tokenizer = match Tokenizer::from_file(tokenizer_path) {
-            Ok(tok) => {
-                info!("Tokenizer loaded successfully");
-                Some(tok)
-            },
-            Err(e) => {
-                error!("Failed to load tokenizer: {}", e);
-                None
-            }
-        };
-
-        // Initialize ONNX Runtime
-        let session = Environment::builder()
-            .with_name("text_classifier")
-            .build()
-            .map(|env| Arc::new(env))
-            .and_then(|env| {
-                SessionBuilder::new(&env)
-                    .and_then(|builder| builder.with_model_from_file(model_path))
-            })
-            .map_or_else(
-                |e| {
-                    error!("Failed to load ONNX model: {}", e);
-                    None
-                },
-                |sess| {
-                    info!("ONNX model loaded successfully");
-                    Some(sess)
-                }
-            );
-
-        self.model_path = Some(model_path.to_string());
-        self.tokenizer_path = Some(tokenizer_path.to_string());
-        self.tokenizer = tokenizer;
-        self.session = session;
-        
+        self.load_model(model_path, tokenizer_path);
         self
     }
 
