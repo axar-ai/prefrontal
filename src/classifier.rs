@@ -18,6 +18,74 @@ pub struct ClassifierBuilder {
     class_examples: HashMap<String, Vec<String>>,
 }
 
+/// Private trait for embedding functionality
+trait TextEmbedding {
+    fn tokenizer(&self) -> Option<&Tokenizer>;
+    fn session(&self) -> Option<&Session>;
+    
+    fn tokenize(&self, text: &str) -> Option<Vec<u32>> {
+        self.tokenizer()?.encode(text, false).ok()
+            .map(|encoding| encoding.get_ids().to_vec())
+    }
+
+    fn embed_text(&self, text: &str) -> Option<Array1<f32>> {
+        if let Some(tokens) = self.tokenize(text) {
+            self.get_embedding(&tokens)
+        } else {
+            None
+        }
+    }
+
+    fn get_embedding(&self, tokens: &[u32]) -> Option<Array1<f32>> {
+        let session = self.session()?;
+
+        let input_array = Array2::from_shape_vec((1, tokens.len()), 
+            tokens.iter().map(|&x| x as i64).collect()).ok()?;
+        let input_dyn = input_array.into_dyn();
+        let input_ids = input_dyn.as_standard_layout();
+        
+        let mask_array = Array2::from_shape_vec((1, tokens.len()),
+            tokens.iter().map(|&x| if x == 0 { 0i64 } else { 1i64 }).collect()).ok()?;
+        let mask_dyn = mask_array.into_dyn();
+        let attention_mask = mask_dyn.as_standard_layout();
+        
+        let input_tensors = vec![
+            Value::from_array(session.allocator(), &input_ids).ok()?,
+            Value::from_array(session.allocator(), &attention_mask).ok()?,
+        ];
+
+        let outputs = session.run(input_tensors).ok()?;
+        let output_tensor: OrtOwnedTensor<f32, _> = outputs[0].try_extract().ok()?;
+        let array = output_tensor.view();
+        
+        let mut embedding = Array1::zeros(array.shape()[2]);
+        let embedding_slice = array.slice(ndarray::s![0, 0, ..]);
+        embedding.assign(&Array1::from_iter(embedding_slice.iter().cloned()));
+
+        Some(Classifier::normalize_vector(&embedding))
+    }
+}
+
+impl TextEmbedding for ClassifierBuilder {
+    fn tokenizer(&self) -> Option<&Tokenizer> {
+        self.tokenizer.as_ref()
+    }
+    
+    fn session(&self) -> Option<&Session> {
+        self.session.as_ref()
+    }
+}
+
+impl TextEmbedding for Classifier {
+    fn tokenizer(&self) -> Option<&Tokenizer> {
+        self.tokenizer.as_ref()
+    }
+    
+    fn session(&self) -> Option<&Session> {
+        self.session.as_ref()
+    }
+}
+
 impl ClassifierBuilder {
     /// Creates a new ClassifierBuilder
     pub fn new() -> Self {
@@ -190,49 +258,6 @@ impl ClassifierBuilder {
             embedded_prototypes,
         })
     }
-
-    // Helper methods for embedding during build
-    fn embed_text(&self, text: &str) -> Option<Array1<f32>> {
-        if let Some(tokens) = self.tokenize(text) {
-            self.get_embedding(&tokens)
-        } else {
-            None
-        }
-    }
-
-    fn tokenize(&self, text: &str) -> Option<Vec<u32>> {
-        self.tokenizer.as_ref()?.encode(text, false).ok()
-            .map(|encoding| encoding.get_ids().to_vec())
-    }
-
-    fn get_embedding(&self, tokens: &[u32]) -> Option<Array1<f32>> {
-        let session = self.session.as_ref()?;
-
-        let input_array = Array2::from_shape_vec((1, tokens.len()), 
-            tokens.iter().map(|&x| x as i64).collect()).ok()?;
-        let input_dyn = input_array.into_dyn();
-        let input_ids = input_dyn.as_standard_layout();
-        
-        let mask_array = Array2::from_shape_vec((1, tokens.len()),
-            tokens.iter().map(|&x| if x == 0 { 0i64 } else { 1i64 }).collect()).ok()?;
-        let mask_dyn = mask_array.into_dyn();
-        let attention_mask = mask_dyn.as_standard_layout();
-        
-        let input_tensors = vec![
-            Value::from_array(session.allocator(), &input_ids).ok()?,
-            Value::from_array(session.allocator(), &attention_mask).ok()?,
-        ];
-
-        let outputs = session.run(input_tensors).ok()?;
-        let output_tensor: OrtOwnedTensor<f32, _> = outputs[0].try_extract().ok()?;
-        let array = output_tensor.view();
-        
-        let mut embedding = Array1::zeros(array.shape()[2]);
-        let embedding_slice = array.slice(ndarray::s![0, 0, ..]);
-        embedding.assign(&Array1::from_iter(embedding_slice.iter().cloned()));
-
-        Some(Classifier::normalize_vector(&embedding))
-    }
 }
 
 /// A text classifier that uses ONNX models for embedding and classification.
@@ -286,49 +311,6 @@ impl Classifier {
 
     fn cosine_similarity(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
         a.dot(b)
-    }
-
-    // Instance methods for prediction
-    fn tokenize(&self, text: &str) -> Option<Vec<u32>> {
-        self.tokenizer.as_ref()?.encode(text, false).ok()
-            .map(|encoding| encoding.get_ids().to_vec())
-    }
-
-    fn embed_text(&self, text: &str) -> Option<Array1<f32>> {
-        if let Some(tokens) = self.tokenize(text) {
-            self.get_embedding(&tokens)
-        } else {
-            None
-        }
-    }
-
-    fn get_embedding(&self, tokens: &[u32]) -> Option<Array1<f32>> {
-        let session = self.session.as_ref()?;
-
-        let input_array = Array2::from_shape_vec((1, tokens.len()), 
-            tokens.iter().map(|&x| x as i64).collect()).ok()?;
-        let input_dyn = input_array.into_dyn();
-        let input_ids = input_dyn.as_standard_layout();
-        
-        let mask_array = Array2::from_shape_vec((1, tokens.len()),
-            tokens.iter().map(|&x| if x == 0 { 0i64 } else { 1i64 }).collect()).ok()?;
-        let mask_dyn = mask_array.into_dyn();
-        let attention_mask = mask_dyn.as_standard_layout();
-        
-        let input_tensors = vec![
-            Value::from_array(session.allocator(), &input_ids).ok()?,
-            Value::from_array(session.allocator(), &attention_mask).ok()?,
-        ];
-
-        let outputs = session.run(input_tensors).ok()?;
-        let output_tensor: OrtOwnedTensor<f32, _> = outputs[0].try_extract().ok()?;
-        let array = output_tensor.view();
-        
-        let mut embedding = Array1::zeros(array.shape()[2]);
-        let embedding_slice = array.slice(ndarray::s![0, 0, ..]);
-        embedding.assign(&Array1::from_iter(embedding_slice.iter().cloned()));
-
-        Some(Self::normalize_vector(&embedding))
     }
 
     /// Makes a prediction for the given text
