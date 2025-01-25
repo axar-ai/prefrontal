@@ -6,12 +6,18 @@ use ndarray::{Array2};
 use std::sync::Arc;
 use log::{info, warn, error, debug, trace};
 
+/// Represents the different types of errors that can occur in the text classifier.
 #[derive(Debug)]
 pub enum ClassifierError {
+    /// Error occurred while loading or using the tokenizer
     TokenizerError(String),
+    /// Error occurred while loading or running the ONNX model
     ModelError(String),
+    /// Error occurred during the build phase
     BuildError(String),
+    /// Error occurred while making predictions
     PredictionError(String),
+    /// Error occurred due to invalid input parameters
     ValidationError(String),
 }
 
@@ -29,6 +35,33 @@ impl std::fmt::Display for ClassifierError {
 
 impl std::error::Error for ClassifierError {}
 
+/// A text classifier that uses ONNX models for embedding and classification.
+/// 
+/// This classifier works by:
+/// 1. Converting text into embeddings using a pre-trained ONNX model
+/// 2. Creating class prototypes by averaging embeddings of example texts
+/// 3. Classifying new text by comparing its embedding to class prototypes
+/// 
+/// # Example
+/// ```no_run
+/// use text_classifier::Classifier;
+/// 
+/// let mut classifier = Classifier::new(
+///     "path/to/model.onnx",
+///     "path/to/tokenizer.json"
+/// )?;
+/// 
+/// // Add examples for each class
+/// classifier.add_class("sports", vec!["football game", "basketball match"])?;
+/// classifier.add_class("tech", vec!["computer program", "software code"])?;
+/// 
+/// // Build the classifier
+/// classifier.build()?;
+/// 
+/// // Make predictions
+/// let (class, scores) = classifier.predict("new soccer match")?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[allow(dead_code)]
 pub struct Classifier {
     model_path: String,
@@ -40,6 +73,28 @@ pub struct Classifier {
 }
 
 impl Classifier {
+    /// Creates a new text classifier with the specified model and tokenizer.
+    /// 
+    /// # Arguments
+    /// * `model_path` - Path to the ONNX model file
+    /// * `tokenizer_path` - Path to the tokenizer JSON file
+    /// 
+    /// # Returns
+    /// * `Ok(Classifier)` - A new classifier instance if initialization succeeds
+    /// * `Err(ClassifierError)` - If model/tokenizer loading fails or paths are invalid
+    /// 
+    /// # Errors
+    /// Returns `ClassifierError::ValidationError` if:
+    /// * `model_path` is empty
+    /// * `tokenizer_path` is empty
+    /// 
+    /// Returns `ClassifierError::TokenizerError` if:
+    /// * Tokenizer file cannot be loaded
+    /// * Tokenizer format is invalid
+    /// 
+    /// Returns `ClassifierError::ModelError` if:
+    /// * ONNX model file cannot be loaded
+    /// * Model format is invalid
     pub fn new(model_path: &str, tokenizer_path: &str) -> Result<Self, ClassifierError> {
         debug!("Creating new classifier");
         
@@ -94,6 +149,21 @@ impl Classifier {
         })
     }
 
+    /// Adds a new class with example texts to the classifier.
+    /// 
+    /// # Arguments
+    /// * `label` - The name/label of the class to add
+    /// * `examples` - A list of example texts that represent this class
+    /// 
+    /// # Returns
+    /// * `Ok(())` - If the class was added successfully
+    /// * `Err(ClassifierError)` - If validation fails
+    /// 
+    /// # Errors
+    /// Returns `ClassifierError::ValidationError` if:
+    /// * `label` is empty
+    /// * `examples` is empty
+    /// * Any example text is empty
     pub fn add_class(&mut self, label: &str, examples: Vec<&str>) -> Result<(), ClassifierError> {
         info!("\n=== Adding Class ===");
         
@@ -230,6 +300,20 @@ impl Classifier {
         }
     }
 
+    /// Builds the classifier by computing embeddings for all example texts.
+    /// 
+    /// This method must be called after adding all classes and before making predictions.
+    /// It computes embeddings for all example texts and creates class prototypes
+    /// by averaging the embeddings for each class.
+    /// 
+    /// # Returns
+    /// * `Ok(())` - If build succeeds
+    /// * `Err(Box<dyn Error>)` - If build fails
+    /// 
+    /// # Errors
+    /// * If tokenizer is not initialized
+    /// * If ONNX session is not initialized
+    /// * If embedding computation fails for any example
     pub fn build(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         info!("\n=== Building Classifier ===");
         
@@ -298,6 +382,23 @@ impl Classifier {
         sim
     }
 
+    /// Makes a prediction for the given text.
+    /// 
+    /// Computes the embedding for the input text and compares it to all class
+    /// prototypes using cosine similarity. Returns the best matching class
+    /// and similarity scores for all classes.
+    /// 
+    /// # Arguments
+    /// * `text` - The text to classify
+    /// 
+    /// # Returns
+    /// * `Ok((String, HashMap<String, f32>))` - The predicted class and similarity scores
+    /// * `Err(Box<dyn Error>)` - If prediction fails
+    /// 
+    /// # Errors
+    /// * If tokenization fails
+    /// * If embedding computation fails
+    /// * If no class prototypes are available (build() not called)
     pub fn predict(&self, text: &str) -> Result<(String, HashMap<String, f32>), Box<dyn std::error::Error>> {
         debug!("Making prediction for text: {}", text);
         
