@@ -3,9 +3,6 @@
 **/*.rs.bk
 Cargo.lock
 
-# ONNX model and tokenizer files
-/models/
-
 # IDE specific files
 .vscode/
 .idea/
@@ -21,6 +18,11 @@ Thumbs.db
 
 # Benchmark results
 /criterion/
+
+# ONNX files except for the model and tokenizer
+models/**/*/
+!models/**/tokenizer.json
+!models/**/model.onx
 
 # Documentation
 /doc/

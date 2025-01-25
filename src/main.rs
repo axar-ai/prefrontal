@@ -77,15 +77,25 @@ fn main() {
     for (i, text) in test_inputs.iter().enumerate() {
         info!("\nTest {}/{}:", i + 1, test_inputs.len());
         info!("Input: {}", text);
-        let (class, scores) = classifier.predict(text);
-        info!("Predicted class: {}", class);
-        info!("Confidence scores:");
-        let mut scores: Vec<_> = scores.iter().collect();
-        scores.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
-        for (class, score) in scores {
-            info!("  {}: {:.4}", class, score);
-        }
+        process_input(&classifier, text);
     }
 
     info!("\n=== Demo Complete ===\n");
+}
+
+fn process_input(classifier: &Classifier, text: &str) {
+    println!("\nProcessing: {}", text);
+    
+    match classifier.predict(text) {
+        Ok((class, scores)) => {
+            println!("Predicted class: {}", class);
+            println!("Confidence scores:");
+            for (label, score) in scores {
+                println!("  {}: {:.4}", label, score);
+            }
+        },
+        Err(e) => {
+            eprintln!("Error making prediction: {}", e);
+        }
+    }
 }

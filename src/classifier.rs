@@ -1,6 +1,5 @@
 use ndarray::Array1;
 use std::collections::HashMap;
-use rand::Rng;
 use tokenizers::Tokenizer;
 use ort::{Environment, Session, SessionBuilder, Value, tensor::OrtOwnedTensor};
 use ndarray::{Array2};
@@ -107,14 +106,6 @@ impl Classifier {
         }
     }
 
-    fn mock_embedding(size: usize) -> Array1<f32> {
-        info!("Creating mock embedding of size {}", size);
-        let mut rng = rand::thread_rng();
-        let vec = Array1::from_iter((0..size).map(|_| rng.gen_range(-1.0..1.0)));
-        info!("Generated random vector with sum: {:.6}", vec.sum());
-        Self::normalize_vector(&vec)
-    }
-
     fn get_embedding(&self, tokens: &[u32]) -> Option<Array1<f32>> {
         let session = self.session.as_ref()?;
 
@@ -188,18 +179,26 @@ impl Classifier {
         }
     }
 
-    pub fn embed_text(&self, text: &str) -> Array1<f32> {
+    pub fn embed_text(&self, text: &str) -> Option<Array1<f32>> {
         if let Some(tokens) = self.tokenize(text) {
-            if let Some(embedding) = self.get_embedding(&tokens) {
-                return embedding;
-            }
+            self.get_embedding(&tokens)
+        } else {
+            error!("Failed to tokenize text");
+            None
         }
-        info!("Warning: Falling back to mock embedding");
-        Self::mock_embedding(384)
     }
 
     pub fn build(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         info!("\n=== Building Classifier ===");
+        
+        // Fail early if no tokenizer or session
+        if self.tokenizer.is_none() {
+            return Err("No tokenizer available".into());
+        }
+        if self.session.is_none() {
+            return Err("No ONNX session available".into());
+        }
+
         info!("Initial state:");
         info!("Number of classes: {}", self.class_prototypes.len());
         
@@ -214,7 +213,7 @@ impl Classifier {
                 .enumerate()
                 .map(|(i, text)| {
                     info!("Processing example {} for: {}", i + 1, text);
-                    self.embed_text(text)
+                    self.embed_text(text).unwrap()
                 })
                 .collect();
             
@@ -257,7 +256,7 @@ impl Classifier {
         sim
     }
 
-    pub fn predict(&self, text: &str) -> (String, HashMap<String, f32>) {
+    pub fn predict(&self, text: &str) -> Result<(String, HashMap<String, f32>), Box<dyn std::error::Error>> {
         debug!("Making prediction for text: {}", text);
         
         if let Some(tokens) = self.tokenize(text) {
@@ -267,9 +266,9 @@ impl Classifier {
             warn!("Tokenization failed, falling back to mock embedding");
         }
         
-        // For now, still use mock embedding until we add ONNX
-        info!("\nCreating input vector...");
-        let input_vector = self.embed_text(text);
+        let input_vector = self.embed_text(text)
+            .ok_or("Failed to generate embedding")?;
+        
         info!("Input vector created with shape: {:?}", input_vector.shape());
         
         // Verify input vector is normalized
@@ -317,7 +316,7 @@ impl Classifier {
         info!("All scores: {:?}", scores);
         info!("=== Prediction Complete ===\n");
         
-        (best_class, scores)
+        Ok((best_class, scores))
     }
 }
 

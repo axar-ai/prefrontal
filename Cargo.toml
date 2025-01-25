@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Core dependencies
-ndarray = "0.15"
+ndarray = "0.15.6"
 tokenizers = "0.15"
 log = "0.4"
 env_logger = "0.10"
@@ -22,8 +22,7 @@ anyhow = "1.0"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 cbindgen = "0.26"
-rand = "0.8"
-ort = { version = "1.16.2", features = ["load-dynamic"] }  # ONNX Runtime
+ort = "1.16.3"
 
 [[bench]]
 name = "classifier_benchmark"
