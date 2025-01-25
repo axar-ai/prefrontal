@@ -5,6 +5,7 @@ use ort::{Environment, Session, SessionBuilder, Value, tensor::OrtOwnedTensor};
 use ndarray::{Array2};
 use std::sync::Arc;
 use log::{info, error, debug, trace};
+use crate::BuiltinModel;
 
 /// Represents the different types of errors that can occur in the text classifier.
 #[derive(Debug)]
@@ -44,12 +45,10 @@ impl std::error::Error for ClassifierError {}
 /// 
 /// # Example
 /// ```no_run
-/// use text_classifier::Classifier;
+/// use text_classifier::{Classifier, BuiltinModel};
 /// 
-/// let mut classifier = Classifier::new(
-///     "path/to/model.onnx",
-///     "path/to/tokenizer.json"
-/// )?;
+/// // Create a classifier with the built-in MiniLM model
+/// let mut classifier = Classifier::with_builtin(BuiltinModel::MiniLM)?;
 /// 
 /// // Add examples for each class
 /// classifier.add_class("sports", vec!["football game", "basketball match"])?;
@@ -73,6 +72,57 @@ pub struct Classifier {
 }
 
 impl Classifier {
+    /// Creates a new classifier using a built-in model.
+    /// 
+    /// This is the recommended way to create a classifier as it uses pre-configured
+    /// models that are bundled with the library.
+    /// 
+    /// # Arguments
+    /// * `model` - The built-in model to use
+    /// 
+    /// # Returns
+    /// * `Ok(Classifier)` - A new classifier instance if initialization succeeds
+    /// * `Err(ClassifierError)` - If model initialization fails
+    /// 
+    /// # Example
+    /// ```no_run
+    /// use text_classifier::{Classifier, BuiltinModel};
+    /// 
+    /// let mut classifier = Classifier::with_builtin(BuiltinModel::MiniLM)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn with_builtin(model: BuiltinModel) -> Result<Self, ClassifierError> {
+        let (model_path, tokenizer_path) = model.get_paths();
+        Self::new(model_path, tokenizer_path)
+    }
+
+    /// Creates a new classifier with custom model paths.
+    /// 
+    /// Use this if you want to use your own ONNX model and tokenizer instead of
+    /// the built-in ones.
+    /// 
+    /// # Arguments
+    /// * `model_path` - Path to the custom ONNX model file
+    /// * `tokenizer_path` - Path to the custom tokenizer JSON file
+    /// 
+    /// # Returns
+    /// * `Ok(Classifier)` - A new classifier instance if initialization succeeds
+    /// * `Err(ClassifierError)` - If model/tokenizer loading fails
+    /// 
+    /// # Example
+    /// ```no_run
+    /// use text_classifier::Classifier;
+    /// 
+    /// let mut classifier = Classifier::with_custom(
+    ///     "path/to/model.onnx",
+    ///     "path/to/tokenizer.json"
+    /// )?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn with_custom(model_path: &str, tokenizer_path: &str) -> Result<Self, ClassifierError> {
+        Self::new(model_path, tokenizer_path)
+    }
+
     /// Creates a new text classifier with the specified model and tokenizer.
     /// 
     /// # Arguments
@@ -95,7 +145,7 @@ impl Classifier {
     /// Returns `ClassifierError::ModelError` if:
     /// * ONNX model file cannot be loaded
     /// * Model format is invalid
-    pub fn new(model_path: &str, tokenizer_path: &str) -> Result<Self, ClassifierError> {
+    fn new(model_path: &str, tokenizer_path: &str) -> Result<Self, ClassifierError> {
         debug!("Creating new classifier");
         
         if model_path.is_empty() {

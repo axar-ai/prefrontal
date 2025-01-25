@@ -1,4 +1,4 @@
-use text_classifier::Classifier;
+use text_classifier::{Classifier, BuiltinModel};
 use std::path::PathBuf;
 
 fn get_test_paths() -> (PathBuf, PathBuf) {
@@ -9,8 +9,23 @@ fn get_test_paths() -> (PathBuf, PathBuf) {
 
 #[test]
 fn test_end_to_end_classification() -> Result<(), Box<dyn std::error::Error>> {
+    let mut classifier = Classifier::with_builtin(BuiltinModel::MiniLM)?;
+
+    classifier.add_class("sports", vec!["football game", "basketball match"])?;
+    classifier.build()?;
+
+    let (class, scores) = classifier.predict("soccer match")?;
+    
+    assert_eq!(class, "sports");
+    assert!(scores.contains_key("sports"));
+    assert!(scores["sports"] > 0.5);
+    Ok(())
+}
+
+#[test]
+fn test_custom_model_paths() -> Result<(), Box<dyn std::error::Error>> {
     let (model_path, tokenizer_path) = get_test_paths();
-    let mut classifier = Classifier::new(
+    let mut classifier = Classifier::with_custom(
         model_path.to_str().unwrap(),
         tokenizer_path.to_str().unwrap()
     )?;
@@ -27,9 +42,9 @@ fn test_end_to_end_classification() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
+fn test_multiple_classes_custom_paths() -> Result<(), Box<dyn std::error::Error>> {
     let (model_path, tokenizer_path) = get_test_paths();
-    let mut classifier = Classifier::new(
+    let mut classifier = Classifier::with_custom(
         model_path.to_str().unwrap(),
         tokenizer_path.to_str().unwrap()
     )?;
@@ -50,16 +65,54 @@ fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn test_validation_errors() {
-    assert!(Classifier::new("", "tokenizer.json").is_err());
-    assert!(Classifier::new("model.onnx", "").is_err());
+    // Test custom model path validation
+    assert!(Classifier::with_custom("", "tokenizer.json").is_err());
+    assert!(Classifier::with_custom("model.onnx", "").is_err());
+    assert!(Classifier::with_custom("nonexistent.onnx", "nonexistent.json").is_err());
     
-    let (model_path, tokenizer_path) = get_test_paths();
-    let mut classifier = Classifier::new(
-        model_path.to_str().unwrap(),
-        tokenizer_path.to_str().unwrap()
-    ).expect("Failed to create classifier");
+    // Test with built-in model
+    let mut classifier = Classifier::with_builtin(BuiltinModel::MiniLM)
+        .expect("Failed to create classifier");
     
     assert!(classifier.add_class("", vec!["example"]).is_err());
     assert!(classifier.add_class("label", vec![]).is_err());
     assert!(classifier.add_class("label", vec![""]).is_err());
+}
+
+#[test]
+fn test_builtin_model_characteristics() {
+    let model = BuiltinModel::MiniLM;
+    let chars = model.characteristics();
+    assert_eq!(chars.embedding_size, 384);
+    assert_eq!(chars.max_sequence_length, 256);
+    assert_eq!(chars.model_size_mb, 85);
+}
+
+#[test]
+fn test_same_results_builtin_and_custom() -> Result<(), Box<dyn std::error::Error>> {
+    // Create two classifiers - one with built-in model and one with custom paths
+    let mut builtin = Classifier::with_builtin(BuiltinModel::MiniLM)?;
+    let (model_path, tokenizer_path) = get_test_paths();
+    let mut custom = Classifier::with_custom(
+        model_path.to_str().unwrap(),
+        tokenizer_path.to_str().unwrap()
+    )?;
+
+    // Add same classes to both
+    let examples = vec!["football game", "basketball match"];
+    builtin.add_class("sports", examples.clone())?;
+    custom.add_class("sports", examples)?;
+
+    // Build both classifiers
+    builtin.build()?;
+    custom.build()?;
+
+    // Make predictions with both
+    let (class1, scores1) = builtin.predict("soccer match")?;
+    let (class2, scores2) = custom.predict("soccer match")?;
+
+    // Verify they give same results
+    assert_eq!(class1, class2);
+    assert_eq!(scores1["sports"], scores2["sports"]);
+    Ok(())
 } 

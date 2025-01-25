@@ -1,15 +1,12 @@
-use text_classifier::{Classifier, init_logger};
+use text_classifier::{Classifier, init_logger, BuiltinModel};
 use log::{info, error};
 
 fn main() {
     init_logger();
     info!("=== Starting Text Classifier Demo ===");
 
-    // Create classifier
-    let mut classifier = match Classifier::new(
-        "models/onnx-minilm/model.onnx",
-        "models/onnx-minilm/tokenizer.json"
-    ) {
+    // Create classifier using built-in model
+    let mut classifier = match Classifier::with_builtin(BuiltinModel::MiniLM) {
         Ok(classifier) => classifier,
         Err(e) => {
             error!("Failed to create classifier: {}", e);
