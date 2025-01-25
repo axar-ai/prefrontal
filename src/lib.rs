@@ -69,13 +69,10 @@ impl BuiltinModel {
         }
     }
 
-    /// Get the paths to the model and tokenizer files
-    pub(crate) fn get_paths(&self) -> (&'static str, &'static str) {
+    /// Returns the paths to the model and tokenizer files
+    pub fn get_paths(&self) -> (&'static str, &'static str) {
         match self {
-            Self::MiniLM => (
-                "models/onnx-minilm/model.onnx",
-                "models/onnx-minilm/tokenizer.json",
-            ),
+            BuiltinModel::MiniLM => ("models/minilm.onnx", "models/tokenizer.json"),
         }
     }
 }

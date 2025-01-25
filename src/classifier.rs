@@ -9,7 +9,7 @@ use crate::ClassifierError;
 use crate::BuiltinModel;
 
 /// A builder for constructing a Classifier with a fluent interface.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ClassifierBuilder {
     model_path: Option<String>,
     tokenizer_path: Option<String>,
@@ -93,66 +93,73 @@ impl ClassifierBuilder {
     }
 
     // Private helper to load model and tokenizer
-    fn load_model(&mut self, model_path: &str, tokenizer_path: &str) {
+    fn load_model(&mut self, model_path: &str, tokenizer_path: &str) -> Result<(), ClassifierError> {
         // Load tokenizer
-        let tokenizer = match Tokenizer::from_file(tokenizer_path) {
-            Ok(tok) => {
-                info!("Tokenizer loaded successfully");
-                Some(tok)
-            },
-            Err(e) => {
+        let tokenizer = Tokenizer::from_file(tokenizer_path)
+            .map_err(|e| {
                 error!("Failed to load tokenizer: {}", e);
-                None
-            }
-        };
+                ClassifierError::BuildError(format!("Failed to load tokenizer: {}", e))
+            })?;
+        info!("Tokenizer loaded successfully");
 
         // Initialize ONNX Runtime
         let session = Environment::builder()
             .with_name("text_classifier")
             .build()
-            .map(|env| Arc::new(env))
-            .and_then(|env| {
-                SessionBuilder::new(&env)
-                    .and_then(|builder| builder.with_model_from_file(model_path))
-            })
-            .map_or_else(
-                |e| {
-                    error!("Failed to load ONNX model: {}", e);
-                    None
-                },
-                |sess| {
-                    info!("ONNX model loaded successfully");
-                    Some(sess)
-                }
-            );
+            .map_err(|e| ClassifierError::BuildError(format!("Failed to create environment: {}", e)))?;
+        
+        let session = Arc::new(session);
+        let session = SessionBuilder::new(&session)
+            .and_then(|builder| builder.with_model_from_file(model_path))
+            .map_err(|e| {
+                error!("Failed to load ONNX model: {}", e);
+                ClassifierError::BuildError(format!("Failed to load ONNX model: {}", e))
+            })?;
+        info!("ONNX model loaded successfully");
 
         self.model_path = Some(model_path.to_string());
         self.tokenizer_path = Some(tokenizer_path.to_string());
-        self.tokenizer = tokenizer;
-        self.session = session;
+        self.tokenizer = Some(tokenizer);
+        self.session = Some(session);
+        Ok(())
     }
 
     /// Sets the model to use for classification
-    pub fn with_model(mut self, model: BuiltinModel) -> Self {
+    pub fn with_model(mut self, model: BuiltinModel) -> Result<Self, ClassifierError> {
         let (model_path, tokenizer_path) = model.get_paths();
-        self.load_model(model_path, tokenizer_path);
-        self
+        self.load_model(model_path, tokenizer_path)?;
+        Ok(self)
     }
 
     /// Sets a custom model and tokenizer path
-    pub fn with_custom_model(mut self, model_path: &str, tokenizer_path: &str) -> Self {
-        self.load_model(model_path, tokenizer_path);
-        self
+    pub fn with_custom_model(mut self, model_path: &str, tokenizer_path: &str) -> Result<Self, ClassifierError> {
+        self.load_model(model_path, tokenizer_path)?;
+        Ok(self)
     }
 
     /// Adds a class with example texts
-    pub fn add_class(mut self, label: &str, examples: Vec<&str>) -> Self {
+    pub fn add_class(mut self, label: &str, examples: Vec<&str>) -> Result<Self, ClassifierError> {
+        // Validate inputs first
+        if label.is_empty() {
+            return Err(ClassifierError::ValidationError("Class label cannot be empty".into()));
+        }
+        if examples.is_empty() {
+            return Err(ClassifierError::ValidationError(format!("Class '{}' has no examples", label)));
+        }
+        for (i, example) in examples.iter().enumerate() {
+            if example.is_empty() {
+                return Err(ClassifierError::ValidationError(
+                    format!("Empty example {} in class '{}'", i + 1, label)
+                ));
+            }
+        }
+
         let examples: Vec<String> = examples.into_iter()
             .map(String::from)
             .collect();
             
         self.class_examples.insert(label.to_string(), examples);
-        self
+        Ok(self)
     }
 
     /// Builds the classifier, consuming the builder
@@ -162,10 +169,10 @@ impl ClassifierBuilder {
             return Err(ClassifierError::BuildError("Model not set. Call with_model() first".into()));
         }
         if self.tokenizer.is_none() {
-            return Err(ClassifierError::BuildError("Failed to load tokenizer".into()));
+            return Err(ClassifierError::BuildError("No tokenizer loaded".into()));
         }
         if self.session.is_none() {
-            return Err(ClassifierError::BuildError("Failed to load ONNX model".into()));
+            return Err(ClassifierError::BuildError("No ONNX model loaded".into()));
         }
         if self.class_examples.is_empty() {
             return Err(ClassifierError::ValidationError("No classes added. Add at least one class with examples".into()));
