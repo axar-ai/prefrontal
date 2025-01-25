@@ -4,7 +4,7 @@ use tokenizers::Tokenizer;
 use ort::{Environment, Session, SessionBuilder, Value, tensor::OrtOwnedTensor};
 use ndarray::{Array2};
 use std::sync::Arc;
-use log::{info, warn, error, debug, trace};
+use log::{info, error, debug, trace};
 
 /// Represents the different types of errors that can occur in the text classifier.
 #[derive(Debug)]
@@ -319,10 +319,15 @@ impl Classifier {
         
         // Fail early if no tokenizer or session
         if self.tokenizer.is_none() {
-            return Err("No tokenizer available".into());
+            return Err(ClassifierError::BuildError("No tokenizer available".into()).into());
         }
         if self.session.is_none() {
-            return Err("No ONNX session available".into());
+            return Err(ClassifierError::BuildError("No ONNX session available".into()).into());
+        }
+
+        // Validate we have at least one class with examples
+        if self.class_prototypes.is_empty() {
+            return Err(ClassifierError::ValidationError("No classes added. Add at least one class with examples before building".into()).into());
         }
 
         info!("Initial state:");
@@ -339,9 +344,17 @@ impl Classifier {
                 .enumerate()
                 .map(|(i, text)| {
                     info!("Processing example {} for: {}", i + 1, text);
-                    self.embed_text(text).unwrap()
+                    self.embed_text(text).ok_or_else(|| ClassifierError::BuildError(
+                        format!("Failed to embed example {} for class '{}'", i + 1, label)
+                    ))
                 })
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
+            
+            if embedded_examples.is_empty() {
+                return Err(ClassifierError::BuildError(
+                    format!("No valid embeddings generated for class '{}'", label)
+                ).into());
+            }
             
             // Average the embeddings
             info!("Computing average vector...");
@@ -402,22 +415,38 @@ impl Classifier {
     pub fn predict(&self, text: &str) -> Result<(String, HashMap<String, f32>), Box<dyn std::error::Error>> {
         debug!("Making prediction for text: {}", text);
         
+        // Validate input text
+        if text.is_empty() {
+            return Err(ClassifierError::ValidationError("Input text cannot be empty".into()).into());
+        }
+        
+        // Validate that build() was called
+        if self.embedded_prototypes.is_empty() {
+            return Err(ClassifierError::ValidationError(
+                "No class prototypes available. Call build() before making predictions".into()
+            ).into());
+        }
+        
         if let Some(tokens) = self.tokenize(text) {
             debug!("Tokenization successful: {} tokens", tokens.len());
             trace!("Tokens: {:?}", tokens);
         } else {
-            warn!("Tokenization failed, falling back to mock embedding");
+            return Err(ClassifierError::PredictionError("Failed to tokenize input text".into()).into());
         }
         
         let input_vector = self.embed_text(text)
-            .ok_or("Failed to generate embedding")?;
+            .ok_or_else(|| ClassifierError::PredictionError("Failed to generate embedding".into()))?;
         
         info!("Input vector created with shape: {:?}", input_vector.shape());
         
         // Verify input vector is normalized
         let input_norm: f32 = input_vector.iter().map(|&x| x * x).sum::<f32>().sqrt();
         info!("Input vector norm: {:.6}", input_norm);
-        debug_assert!((input_norm - 1.0).abs() < 1e-6, "Input vector not normalized: {}", input_norm);
+        if (input_norm - 1.0).abs() >= 1e-6 {
+            return Err(ClassifierError::PredictionError(
+                format!("Input vector not properly normalized: {}", input_norm)
+            ).into());
+        }
         
         let mut scores = HashMap::new();
         
@@ -428,7 +457,11 @@ impl Classifier {
             // Verify prototype is normalized
             let proto_norm: f32 = prototype.iter().map(|&x| x * x).sum::<f32>().sqrt();
             info!("Prototype norm: {:.6}", proto_norm);
-            debug_assert!((proto_norm - 1.0).abs() < 1e-6, "Prototype not normalized: {}", proto_norm);
+            if (proto_norm - 1.0).abs() >= 1e-6 {
+                return Err(ClassifierError::PredictionError(
+                    format!("Prototype for class '{}' not properly normalized: {}", label, proto_norm)
+                ).into());
+            }
             
             info!("Computing cosine similarity...");
             let similarity = Self::cosine_similarity(&input_vector, prototype);
@@ -448,8 +481,7 @@ impl Classifier {
                     class.clone()
                 },
                 None => {
-                    info!("Could not determine best class, using 'unknown'");
-                    "unknown".to_string()
+                    return Err(ClassifierError::PredictionError("Failed to compare similarity scores".into()).into());
                 }
             }
         };
