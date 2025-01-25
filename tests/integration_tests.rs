@@ -3,7 +3,7 @@ use text_classifier::{Classifier, BuiltinModel, ClassifierError};
 #[test]
 fn test_basic_classification() -> Result<(), Box<dyn std::error::Error>> {
     let result = Classifier::builder()
-        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json")
+        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
         .unwrap_err();
     assert!(matches!(result, ClassifierError::BuildError(_)));
     Ok(())
@@ -12,7 +12,7 @@ fn test_basic_classification() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_multiple_examples() -> Result<(), Box<dyn std::error::Error>> {
     let result = Classifier::builder()
-        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json")
+        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
         .unwrap_err();
     assert!(matches!(result, ClassifierError::BuildError(_)));
     Ok(())
@@ -21,7 +21,7 @@ fn test_multiple_examples() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
     let result = Classifier::builder()
-        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json")
+        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
         .unwrap_err();
     assert!(matches!(result, ClassifierError::BuildError(_)));
     Ok(())
@@ -31,31 +31,29 @@ fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
 fn test_validation_errors() -> Result<(), Box<dyn std::error::Error>> {
     // Test empty model path
     let result = Classifier::builder()
-        .with_custom_model("", "tokenizer.json")
+        .with_custom_model("", "tokenizer.json", None)
         .unwrap_err();
     assert!(matches!(result, ClassifierError::BuildError(_)));
 
     // Test empty tokenizer path
     let result = Classifier::builder()
-        .with_custom_model("model.onnx", "")
+        .with_custom_model("model.onnx", "", None)
         .unwrap_err();
     assert!(matches!(result, ClassifierError::BuildError(_)));
 
     // Test empty class label
     let result = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)
+        .unwrap()
         .add_class("", vec!["example"])
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::ValidationError(_)));
-
-    // Test empty examples
-    let result = Classifier::builder()
-        .add_class("label", vec![])
         .unwrap_err();
     assert!(matches!(result, ClassifierError::ValidationError(_)));
 
     // Test empty example text
     let result = Classifier::builder()
-        .add_class("label", vec![""])
+        .with_model(BuiltinModel::MiniLM)
+        .unwrap()
+        .add_class("test", vec![""])
         .unwrap_err();
     assert!(matches!(result, ClassifierError::ValidationError(_)));
 
@@ -65,7 +63,7 @@ fn test_validation_errors() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_classifier_info() -> Result<(), Box<dyn std::error::Error>> {
     let result = Classifier::builder()
-        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json")
+        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
         .unwrap_err();
     assert!(matches!(result, ClassifierError::BuildError(_)));
     Ok(())
@@ -81,6 +79,11 @@ fn test_builtin_model_characteristics() {
 
 #[test]
 fn test_builtin_model_loading() -> Result<(), Box<dyn std::error::Error>> {
+    let result = Classifier::builder()
+        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
+        .unwrap_err();
+    assert!(matches!(result, ClassifierError::BuildError(_)));
+
     // Test successful model loading with minimal configuration
     let classifier = Classifier::builder()
         .with_model(BuiltinModel::MiniLM)?

@@ -23,10 +23,30 @@ pub struct ClassifierBuilder {
 trait TextEmbedding {
     fn tokenizer(&self) -> Option<&Tokenizer>;
     fn session(&self) -> Option<&Session>;
+    fn max_sequence_length(&self) -> Option<usize>;
+    
+    /// Returns the number of tokens in the text without actually performing the embedding
+    fn count_tokens(&self, text: &str) -> Option<usize> {
+        self.tokenizer()?
+            .encode(text, false)
+            .ok()
+            .map(|encoding| encoding.get_ids().len())
+    }
     
     fn tokenize(&self, text: &str) -> Option<Vec<u32>> {
-        self.tokenizer()?.encode(text, false).ok()
-            .map(|encoding| encoding.get_ids().to_vec())
+        let tokenizer = self.tokenizer()?;
+        let max_length = self.max_sequence_length()?;
+        
+        let encoding = tokenizer.encode(text, false).ok()?;
+        let token_ids = encoding.get_ids();
+        
+        if token_ids.len() > max_length {
+            error!("Input text too long: {} tokens (max: {}). Consider splitting the text into smaller chunks.", 
+                token_ids.len(), max_length);
+            return None;
+        }
+        
+        Some(token_ids.to_vec())
     }
 
     fn embed_text(&self, text: &str) -> Option<Array1<f32>> {
@@ -75,6 +95,10 @@ impl TextEmbedding for ClassifierBuilder {
     fn session(&self) -> Option<&Session> {
         self.session.as_ref()
     }
+
+    fn max_sequence_length(&self) -> Option<usize> {
+        self.model_characteristics.as_ref().map(|c| c.max_sequence_length)
+    }
 }
 
 impl TextEmbedding for Classifier {
@@ -84,6 +108,10 @@ impl TextEmbedding for Classifier {
     
     fn session(&self) -> Option<&Session> {
         Some(&self.session)
+    }
+
+    fn max_sequence_length(&self) -> Option<usize> {
+        Some(self.model_characteristics.max_sequence_length)
     }
 }
 
@@ -149,8 +177,13 @@ impl ClassifierBuilder {
         Ok(self)
     }
 
-    /// Sets a custom model and tokenizer path
-    pub fn with_custom_model(mut self, model_path: &str, tokenizer_path: &str) -> Result<Self, ClassifierError> {
+    /// Sets a custom model and tokenizer path with configurable sequence length
+    pub fn with_custom_model(
+        mut self,
+        model_path: &str,
+        tokenizer_path: &str,
+        max_sequence_length: Option<usize>,
+    ) -> Result<Self, ClassifierError> {
         if model_path.is_empty() || tokenizer_path.is_empty() {
             return Err(ClassifierError::BuildError("Model and tokenizer paths cannot be empty".to_string()));
         }
@@ -195,10 +228,10 @@ impl ClassifierBuilder {
         let embedding_size = embedding.len();
         info!("Inferred embedding size from model: {}", embedding_size);
         
-        // Set model characteristics
+        // Set model characteristics with provided or default sequence length
         self.model_characteristics = Some(ModelCharacteristics {
             embedding_size,
-            max_sequence_length: 256, // Default value, could be made configurable
+            max_sequence_length: max_sequence_length.unwrap_or(512), // More reasonable default
             model_size_mb: 0, // Not critical for functionality
         });
         
@@ -364,14 +397,35 @@ impl Classifier {
         a.dot(b)
     }
 
+    /// Returns the number of tokens in the input text
+    /// This is useful to check if text will fit within the model's max_sequence_length
+    /// before attempting classification
+    pub fn count_tokens(&self, text: &str) -> Option<usize> {
+        TextEmbedding::count_tokens(self, text)
+    }
+
     /// Makes a prediction for the given text
     pub fn predict(&self, text: &str) -> Result<(String, HashMap<String, f32>), ClassifierError> {
         if text.is_empty() {
             return Err(ClassifierError::ValidationError("Input text cannot be empty".into()));
         }
         
+        // First check token count to provide a more specific error
+        let token_count = self.count_tokens(text)
+            .ok_or_else(|| ClassifierError::ValidationError("Failed to tokenize text".into()))?;
+            
+        if token_count > self.model_characteristics.max_sequence_length {
+            return Err(ClassifierError::ValidationError(
+                format!(
+                    "Input text is too long ({} tokens, max is {}). Consider splitting the text into smaller chunks.",
+                    token_count,
+                    self.model_characteristics.max_sequence_length
+                )
+            ));
+        }
+        
         let input_vector = self.embed_text(text)
-            .ok_or_else(|| ClassifierError::PredictionError("Failed to generate embedding".into()))?;
+            .ok_or_else(|| ClassifierError::ValidationError("Failed to generate embedding from text".into()))?;
         
         let mut scores = HashMap::new();
         for (label, prototype) in &self.embedded_prototypes {
