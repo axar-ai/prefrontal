@@ -1,10 +1,9 @@
-use ndarray::Array1;
 use std::collections::HashMap;
 use tokenizers::Tokenizer;
-use ort::{Environment, Session, SessionBuilder, Value, tensor::OrtOwnedTensor};
-use ndarray::{Array2};
-use std::sync::Arc;
+use ort::{Environment, Session, SessionBuilder, Value, tensor::OrtOwnedTensor, OrtError};
+use ndarray::{Array1, Array2};
 use log::{info, error};
+use std::sync::Arc;
 use crate::ClassifierError;
 use crate::BuiltinModel;
 
@@ -78,22 +77,47 @@ impl TextEmbedding for ClassifierBuilder {
 
 impl TextEmbedding for Classifier {
     fn tokenizer(&self) -> Option<&Tokenizer> {
-        self.tokenizer.as_ref()
+        Some(&self.tokenizer)
     }
     
     fn session(&self) -> Option<&Session> {
-        self.session.as_ref()
+        Some(&self.session)
+    }
+}
+
+impl From<OrtError> for ClassifierError {
+    fn from(err: OrtError) -> Self {
+        ClassifierError::BuildError(err.to_string())
     }
 }
 
 impl ClassifierBuilder {
     /// Creates a new ClassifierBuilder
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            model_path: None,
+            tokenizer_path: None,
+            tokenizer: None,
+            session: None,
+            class_examples: HashMap::new(),
+        }
     }
 
-    // Private helper to load model and tokenizer
-    fn load_model(&mut self, model_path: &str, tokenizer_path: &str) -> Result<(), ClassifierError> {
+    /// Sets the model to use for classification
+    pub fn with_model(mut self, model: BuiltinModel) -> Result<Self, ClassifierError> {
+        if self.model_path.is_some() || self.tokenizer_path.is_some() {
+            return Err(ClassifierError::BuildError("Model and tokenizer paths already set".to_string()));
+        }
+        let (model_path, tokenizer_path) = model.get_paths();
+        
+        // Validate paths exist
+        if !std::path::Path::new(model_path).exists() {
+            return Err(ClassifierError::BuildError(format!("Model file not found: {}", model_path)));
+        }
+        if !std::path::Path::new(tokenizer_path).exists() {
+            return Err(ClassifierError::BuildError(format!("Tokenizer file not found: {}", tokenizer_path)));
+        }
+
         // Load tokenizer
         let tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| {
@@ -102,38 +126,62 @@ impl ClassifierBuilder {
             })?;
         info!("Tokenizer loaded successfully");
 
-        // Initialize ONNX Runtime
-        let session = Environment::builder()
+        // Initialize ONNX Runtime and load model
+        let env = Arc::new(Environment::builder()
             .with_name("text_classifier")
             .build()
-            .map_err(|e| ClassifierError::BuildError(format!("Failed to create environment: {}", e)))?;
+            .map_err(|e| ClassifierError::BuildError(format!("Failed to create environment: {}", e)))?);
         
-        let session = Arc::new(session);
-        let session = SessionBuilder::new(&session)
-            .and_then(|builder| builder.with_model_from_file(model_path))
-            .map_err(|e| {
-                error!("Failed to load ONNX model: {}", e);
-                ClassifierError::BuildError(format!("Failed to load ONNX model: {}", e))
-            })?;
+        let session = SessionBuilder::new(&env)?
+            .with_model_from_file(model_path)?;
         info!("ONNX model loaded successfully");
-
+        
         self.model_path = Some(model_path.to_string());
         self.tokenizer_path = Some(tokenizer_path.to_string());
         self.tokenizer = Some(tokenizer);
         self.session = Some(session);
-        Ok(())
-    }
-
-    /// Sets the model to use for classification
-    pub fn with_model(mut self, model: BuiltinModel) -> Result<Self, ClassifierError> {
-        let (model_path, tokenizer_path) = model.get_paths();
-        self.load_model(model_path, tokenizer_path)?;
         Ok(self)
     }
 
     /// Sets a custom model and tokenizer path
     pub fn with_custom_model(mut self, model_path: &str, tokenizer_path: &str) -> Result<Self, ClassifierError> {
-        self.load_model(model_path, tokenizer_path)?;
+        if model_path.is_empty() || tokenizer_path.is_empty() {
+            return Err(ClassifierError::BuildError("Model and tokenizer paths cannot be empty".to_string()));
+        }
+        if self.model_path.is_some() || self.tokenizer_path.is_some() {
+            return Err(ClassifierError::BuildError("Model and tokenizer paths already set".to_string()));
+        }
+        
+        // Validate paths exist
+        if !std::path::Path::new(model_path).exists() {
+            return Err(ClassifierError::BuildError(format!("Model file not found: {}", model_path)));
+        }
+        if !std::path::Path::new(tokenizer_path).exists() {
+            return Err(ClassifierError::BuildError(format!("Tokenizer file not found: {}", tokenizer_path)));
+        }
+
+        // Load tokenizer
+        let tokenizer = Tokenizer::from_file(tokenizer_path)
+            .map_err(|e| {
+                error!("Failed to load tokenizer: {}", e);
+                ClassifierError::BuildError(format!("Failed to load tokenizer: {}", e))
+            })?;
+        info!("Tokenizer loaded successfully");
+
+        // Initialize ONNX Runtime and load model
+        let env = Arc::new(Environment::builder()
+            .with_name("text_classifier")
+            .build()
+            .map_err(|e| ClassifierError::BuildError(format!("Failed to create environment: {}", e)))?);
+        
+        let session = SessionBuilder::new(&env)?
+            .with_model_from_file(model_path)?;
+        info!("ONNX model loaded successfully");
+        
+        self.model_path = Some(model_path.to_string());
+        self.tokenizer_path = Some(tokenizer_path.to_string());
+        self.tokenizer = Some(tokenizer);
+        self.session = Some(session);
         Ok(self)
     }
 
@@ -157,30 +205,29 @@ impl ClassifierBuilder {
 
     /// Adds a class with example texts
     pub fn add_class(mut self, label: &str, examples: Vec<&str>) -> Result<Self, ClassifierError> {
-        Self::validate_class_data(label, &examples)?;
-        
-        let examples: Vec<String> = examples.into_iter()
-            .map(String::from)
-            .collect();
-            
-        self.class_examples.insert(label.to_string(), examples);
+        if label.is_empty() {
+            return Err(ClassifierError::ValidationError("Class label cannot be empty".to_string()));
+        }
+        if examples.is_empty() {
+            return Err(ClassifierError::ValidationError("Examples list cannot be empty".to_string()));
+        }
+        if examples.iter().any(|e| e.is_empty()) {
+            return Err(ClassifierError::ValidationError("Example text cannot be empty".to_string()));
+        }
+        if self.class_examples.contains_key(label) {
+            return Err(ClassifierError::ValidationError(format!("Class '{}' already exists", label)));
+        }
+        self.class_examples.insert(label.to_string(), examples.iter().map(|s| s.to_string()).collect());
         Ok(self)
     }
 
     /// Builds the classifier, consuming the builder
-    pub fn build(self) -> Result<Classifier, ClassifierError> {
-        // Validate required fields
+    pub fn build(mut self) -> Result<Classifier, ClassifierError> {
         if self.model_path.is_none() || self.tokenizer_path.is_none() {
-            return Err(ClassifierError::BuildError("Model not set. Call with_model() first".into()));
-        }
-        if self.tokenizer.is_none() {
-            return Err(ClassifierError::BuildError("No tokenizer loaded".into()));
-        }
-        if self.session.is_none() {
-            return Err(ClassifierError::BuildError("No ONNX model loaded".into()));
+            return Err(ClassifierError::BuildError("Model and tokenizer paths must be set".to_string()));
         }
         if self.class_examples.is_empty() {
-            return Err(ClassifierError::ValidationError("No classes added. Add at least one class with examples".into()));
+            return Err(ClassifierError::BuildError("At least one class must be added".to_string()));
         }
 
         // Validate all class data
@@ -190,6 +237,8 @@ impl ClassifierBuilder {
 
         let mut embedded_prototypes = HashMap::new();
         
+        // Process all examples before moving tokenizer and session
+        let mut class_embeddings: Vec<(String, Vec<Array1<f32>>)> = Vec::new();
         for (label, examples) in &self.class_examples {
             info!("\nProcessing class '{}':", label);
             
@@ -212,16 +261,27 @@ impl ClassifierBuilder {
                 ));
             }
             
+            class_embeddings.push((label.clone(), embedded_examples));
+        }
+
+        // Now we can safely take ownership of tokenizer and session
+        let tokenizer = self.tokenizer.take()
+            .ok_or_else(|| ClassifierError::BuildError("No tokenizer loaded".into()))?;
+        let session = self.session.take()
+            .ok_or_else(|| ClassifierError::BuildError("No ONNX model loaded".into()))?;
+
+        // Process the embeddings into prototypes
+        for (label, embedded_examples) in class_embeddings {
             let avg_vector = Classifier::average_vectors(&embedded_examples);
             let prototype = Classifier::normalize_vector(&avg_vector);
-            embedded_prototypes.insert(label.clone(), prototype);
+            embedded_prototypes.insert(label, prototype);
         }
         
         Ok(Classifier {
-            model_path: self.model_path.unwrap(),
-            tokenizer_path: self.tokenizer_path.unwrap(),
-            tokenizer: self.tokenizer,
-            session: self.session,
+            model_path: self.model_path.take().unwrap(),
+            tokenizer_path: self.tokenizer_path.take().unwrap(),
+            tokenizer,
+            session,
             embedded_prototypes,
         })
     }
@@ -231,8 +291,8 @@ impl ClassifierBuilder {
 pub struct Classifier {
     model_path: String,
     tokenizer_path: String,
-    tokenizer: Option<Tokenizer>,
-    session: Option<Session>,
+    tokenizer: Tokenizer,
+    session: Session,
     embedded_prototypes: HashMap<String, Array1<f32>>,
 }
 
