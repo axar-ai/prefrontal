@@ -1,4 +1,5 @@
-use text_classifier::{Classifier, BuiltinModel, ClassifierError};
+use text_classifier::{Classifier, BuiltinModel, ClassifierError, RuntimeConfig};
+use ort::GraphOptimizationLevel;
 
 #[test]
 fn test_basic_classification() -> Result<(), Box<dyn std::error::Error>> {
@@ -235,6 +236,61 @@ fn test_edge_cases() -> Result<(), Box<dyn std::error::Error>> {
     // Test with maximum length text that should be accepted
     let text = "test ".repeat(50);  // Should be under max_sequence_length but still long
     let (_class, scores) = classifier.predict(&text)?;
+    assert!(!scores.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn test_runtime_config() -> Result<(), Box<dyn std::error::Error>> {
+    // Test default config
+    let classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class("test", vec!["sample text"])?
+        .build()?;
+    let (_class, scores) = classifier.predict("test text")?;
+    assert!(!scores.is_empty());
+
+    // Test single-threaded config
+    let config = RuntimeConfig {
+        inter_threads: 1,
+        intra_threads: 1,
+        optimization_level: GraphOptimizationLevel::Level1,
+    };
+    let classifier = Classifier::builder()
+        .with_runtime_config(config)
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class("test", vec!["sample text"])?
+        .build()?;
+    let (_class, scores) = classifier.predict("test text")?;
+    assert!(!scores.is_empty());
+
+    // Test multi-threaded config
+    let config = RuntimeConfig {
+        inter_threads: 2,
+        intra_threads: 2,
+        optimization_level: GraphOptimizationLevel::Level2,
+    };
+    let classifier = Classifier::builder()
+        .with_runtime_config(config)
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class("test", vec!["sample text"])?
+        .build()?;
+    let (_class, scores) = classifier.predict("test text")?;
+    assert!(!scores.is_empty());
+
+    // Test optimization level
+    let config = RuntimeConfig {
+        inter_threads: 0,  // Let ONNX Runtime decide
+        intra_threads: 0,  // Let ONNX Runtime decide
+        optimization_level: GraphOptimizationLevel::Level3,
+    };
+    let classifier = Classifier::builder()
+        .with_runtime_config(config)
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class("test", vec!["sample text"])?
+        .build()?;
+    let (_class, scores) = classifier.predict("test text")?;
     assert!(!scores.is_empty());
 
     Ok(())
