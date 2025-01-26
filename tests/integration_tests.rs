@@ -157,4 +157,38 @@ fn test_builtin_multiclass() -> Result<(), Box<dyn std::error::Error>> {
     assert!(scores.contains_key("business"));
 
     Ok(())
+}
+
+#[test]
+fn test_error_handling() -> Result<(), Box<dyn std::error::Error>> {
+    // Test ValidationError with duplicate class
+    let result = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class("test", vec!["example1"])?
+        .add_class("test", vec!["example2"])  // Duplicate class
+        .unwrap_err();
+    assert!(matches!(result, ClassifierError::ValidationError(_)));
+
+    // Test BuildError with no classes
+    let result = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .build()
+        .unwrap_err();
+    assert!(matches!(result, ClassifierError::BuildError(_)));
+
+    // Test ValidationError with empty class label
+    let result = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class("", vec!["example"])  // Empty class label
+        .unwrap_err();
+    assert!(matches!(result, ClassifierError::ValidationError(_)));
+
+    // Test ValidationError with empty example
+    let result = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class("test", vec![""])  // Empty example
+        .unwrap_err();
+    assert!(matches!(result, ClassifierError::ValidationError(_)));
+
+    Ok(())
 } 
