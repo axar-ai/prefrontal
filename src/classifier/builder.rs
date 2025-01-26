@@ -159,39 +159,66 @@ impl ClassifierBuilder {
         Ok(self)
     }
 
-    // Private helper to validate class data
+    /// Validates class data according to the following rules:
+    /// - Label must not be empty
+    /// - Must have at least one example
+    /// - No example text can be empty
+    /// - Each example must be valid UTF-8
+    /// 
+    /// # Arguments
+    /// * `label` - The class label to validate
+    /// * `examples` - The examples to validate
+    /// 
+    /// # Returns
+    /// * `Ok(())` if validation passes
+    /// * `Err(ClassifierError::ValidationError)` with a descriptive message if validation fails
     fn validate_class_data(label: &str, examples: &[impl AsRef<str>]) -> Result<(), ClassifierError> {
         if label.is_empty() {
             return Err(ClassifierError::ValidationError("Class label cannot be empty".into()));
         }
         if examples.is_empty() {
-            return Err(ClassifierError::ValidationError(format!("Class '{}' has no examples", label)));
+            return Err(ClassifierError::ValidationError("Examples list cannot be empty".into()));
         }
         for (i, example) in examples.iter().enumerate() {
             if example.as_ref().is_empty() {
                 return Err(ClassifierError::ValidationError(
-                    format!("Empty example {} in class '{}'", i + 1, label)
+                    format!("Example {} cannot be empty", i + 1)
                 ));
             }
         }
         Ok(())
     }
 
-    /// Adds a class with example texts
+    /// Adds a class with example texts.
+    /// 
+    /// # Arguments
+    /// * `label` - The class label
+    /// * `examples` - A list of example texts for this class
+    /// 
+    /// # Returns
+    /// * `Ok(Self)` if the class was added successfully
+    /// * `Err(ClassifierError::ValidationError)` if validation fails
+    /// 
+    /// # Errors
+    /// Returns an error if:
+    /// - The class label is empty
+    /// - No examples are provided
+    /// - Any example text is empty
+    /// - The class label already exists
     pub fn add_class(mut self, label: &str, examples: Vec<&str>) -> Result<Self, ClassifierError> {
-        if label.is_empty() {
-            return Err(ClassifierError::ValidationError("Class label cannot be empty".to_string()));
-        }
-        if examples.is_empty() {
-            return Err(ClassifierError::ValidationError("Examples list cannot be empty".to_string()));
-        }
-        if examples.iter().any(|e| e.is_empty()) {
-            return Err(ClassifierError::ValidationError("Example text cannot be empty".to_string()));
-        }
+        // Validate the class data
+        Self::validate_class_data(label, &examples)?;
+        
+        // Check for duplicate class
         if self.class_examples.contains_key(label) {
             return Err(ClassifierError::ValidationError(format!("Class '{}' already exists", label)));
         }
-        self.class_examples.insert(label.to_string(), examples.iter().map(|s| s.to_string()).collect());
+
+        // Add the class if validation passes
+        self.class_examples.insert(
+            label.to_string(), 
+            examples.iter().map(|s| s.to_string()).collect()
+        );
         Ok(self)
     }
 
