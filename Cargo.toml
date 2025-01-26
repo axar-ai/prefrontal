@@ -5,12 +5,12 @@ edition = "2021"
 
 [lib]
 name = "prefrontal"
-path = "src/lib.rs"
+path = "src/rust/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "prefrontal_bin"
-path = "src/main.rs"
+path = "src/rust/main.rs"
 
 [features]
 default = []
