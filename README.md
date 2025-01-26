@@ -188,13 +188,45 @@ thread::spawn(move || {
 });
 ```
 
-## Performance Considerations
+## Performance
 
+Benchmarks run on MacBook Pro M1, 16GB RAM:
+
+### Text Processing
+
+| Operation    | Text Length         | Time     |
+| ------------ | ------------------- | -------- |
+| Tokenization | Short (< 50 chars)  | ~22.5 µs |
+| Tokenization | Medium (~100 chars) | ~51.2 µs |
+| Tokenization | Long (~200 chars)   | ~105 µs  |
+
+### Classification
+
+| Operation      | Scenario     | Time     |
+| -------------- | ------------ | -------- |
+| Embedding      | Single text  | ~11.5 ms |
+| Classification | Single class | ~11.1 ms |
+| Classification | 10 classes   | ~11.2 ms |
+| Build          | 10 classes   | ~478 ms  |
+
+Key Performance Characteristics:
+
+- Sub-millisecond tokenization
+- Consistent classification time regardless of number of classes
+- Thread-safe for concurrent processing
 - Optimized for real-time routing decisions
-- Models are loaded once during initialization
-- Embeddings are computed efficiently using ONNX Runtime
-- Predictions use optimized vector operations
-- Memory usage depends on the model size and number of routing destinations
+
+### Memory Usage
+
+- Model size: ~85MB (MiniLM)
+- Runtime memory: ~100MB per instance
+- Shared memory when using multiple instances (thread-safe)
+
+Run the benchmarks yourself:
+
+```bash
+cargo bench
+```
 
 ## Contributing
 
