@@ -31,15 +31,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libssl-dev
 
-      - name: Install ONNX Runtime
-        run: |
-          wget https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-linux-x64-1.16.3.tgz
-          tar -xzf onnxruntime-linux-x64-1.16.3.tgz
-          sudo cp onnxruntime-linux-x64-1.16.3/lib/libonnxruntime* /usr/lib/
-          sudo ldconfig
-          echo "ORT_STRATEGY=system" >> $GITHUB_ENV
-          echo "ORT_LIB_LOCATION=/usr/lib" >> $GITHUB_ENV
-
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -51,6 +42,11 @@ jobs:
 
       - name: Build
         run: cargo build --verbose
+        env:
+          # Let ort-sys build ONNX Runtime from source
+          ORT_STRATEGY: download
+          # Use system SSL for downloading
+          OPENSSL_DIR: /usr
 
       - name: Run tests
         run: cargo test --verbose
