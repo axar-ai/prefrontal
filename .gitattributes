@@ -1,0 +1,2 @@
+*.onnx filter=lfs diff=lfs merge=lfs -text
+models/onnx-minilm/model.onnx filter=lfs diff=lfs merge=lfs -text 

@@ -19,10 +19,11 @@ Thumbs.db
 # Benchmark results
 /criterion/
 
-# ONNX files except for the model and tokenizer
-models/**/*/
+# Model files - only track .onnx and tokenizer.json
+models/**/*
+!models/**/
+!models/**/model.onnx
 !models/**/tokenizer.json
-!models/**/model.onx
 
 # Documentation
 /doc/
