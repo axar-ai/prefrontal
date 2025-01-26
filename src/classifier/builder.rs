@@ -37,7 +37,7 @@ impl ClassDefinition {
     /// 
     /// # Example
     /// ```
-    /// use text_classifier::ClassDefinition;
+    /// use prefrontal::ClassDefinition;
     /// 
     /// let class = ClassDefinition::new(
     ///     "tech",
@@ -59,7 +59,7 @@ impl ClassDefinition {
     /// 
     /// # Example
     /// ```
-    /// use text_classifier::ClassDefinition;
+    /// use prefrontal::ClassDefinition;
     /// 
     /// let class = ClassDefinition::new(
     ///     "tech",
@@ -283,7 +283,7 @@ impl ClassifierBuilder {
     /// 
     /// # Example
     /// ```
-    /// # use text_classifier::{Classifier, ClassDefinition, BuiltinModel};
+    /// # use prefrontal::{Classifier, ClassDefinition, BuiltinModel};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let classifier = Classifier::builder()
     ///     .with_model(BuiltinModel::MiniLM)?

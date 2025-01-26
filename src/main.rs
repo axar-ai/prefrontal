@@ -1,4 +1,4 @@
-use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
+use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
 use log::info;
 use env_logger;
 

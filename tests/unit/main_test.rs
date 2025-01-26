@@ -1,4 +1,4 @@
-use text_classifier::Classifier;
+use prefrontal::Classifier;
 
 fn setup_classifier() -> Classifier {
     Classifier::new(

@@ -1,4 +1,4 @@
-use text_classifier::{Classifier, ClassifierError, ClassDefinition, BuiltinModel};
+use prefrontal::{Classifier, ClassifierError, ClassDefinition, BuiltinModel};
 
 fn get_test_paths() -> (BuiltinModel, String) {
     let tokenizer_path = "models/bert-base-uncased".to_string();

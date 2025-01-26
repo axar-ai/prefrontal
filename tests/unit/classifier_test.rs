@@ -1,4 +1,4 @@
-use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
+use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
 use ndarray::Array1;
 use std::sync::Arc;
 use std::thread;

@@ -41,7 +41,7 @@ impl Clone for RuntimeConfig {
 
 fn init_onnx_environment() -> Result<Arc<Environment>, OrtError> {
     let builder = Environment::builder()
-        .with_name("text_classifier")
+        .with_name("prefrontal")
         .with_log_level(ort::LoggingLevel::Warning);
 
     Ok(Arc::new(builder.build()?))

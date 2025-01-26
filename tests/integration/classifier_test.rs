@@ -1,4 +1,4 @@
-use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
+use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
 use std::path::PathBuf;
 
 fn get_test_paths() -> (PathBuf, PathBuf) {

@@ -4,7 +4,7 @@
 //! 
 //! ```rust
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
+//! use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
 //! 
 //! let classifier = Classifier::builder()
 //!     .with_model(BuiltinModel::MiniLM)?
@@ -30,7 +30,7 @@
 //! 
 //! ```rust
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
+//! use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
 //! use std::sync::Arc;
 //! use std::thread;
 //! 

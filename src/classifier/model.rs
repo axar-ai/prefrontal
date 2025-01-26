@@ -20,7 +20,7 @@ use crate::ModelCharacteristics;
 /// Single-thread usage:
 /// ```rust
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
+/// use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
 /// 
 /// let classifier = Classifier::builder()
 ///     .with_model(BuiltinModel::MiniLM)?
@@ -38,7 +38,7 @@ use crate::ModelCharacteristics;
 /// Multi-thread usage:
 /// ```rust
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
+/// use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
 /// use std::sync::Arc;
 /// use std::thread;
 /// 

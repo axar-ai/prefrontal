@@ -1,15 +1,15 @@
 [package]
-name = "text_classifier"
+name = "prefrontal"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "text_classifier"
+name = "prefrontal"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "text_classifier_bin"
+name = "prefrontal_bin"
 path = "src/main.rs"
 
 [features]
@@ -49,7 +49,4 @@ strip = true
 panic = "abort"
 
 [profile.dev]
-panic = "unwind"
-
-[profile.test]
 panic = "unwind"
