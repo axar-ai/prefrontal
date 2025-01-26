@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::ClassifierError;
 use crate::BuiltinModel;
 use crate::ModelCharacteristics;
+use std::convert::TryFrom;
 
 /// A builder for constructing a Classifier with a fluent interface.
 #[derive(Default, Debug)]
@@ -26,64 +27,85 @@ trait TextEmbedding {
     fn max_sequence_length(&self) -> Option<usize>;
     
     /// Returns the number of tokens in the text without actually performing the embedding
-    fn count_tokens(&self, text: &str) -> Option<usize> {
-        self.tokenizer()?
-            .encode(text, false)
-            .ok()
+    fn count_tokens(&self, text: &str) -> Result<usize, ClassifierError> {
+        let tokenizer = self.tokenizer()
+            .ok_or_else(|| ClassifierError::TokenizerError("Tokenizer not initialized".into()))?;
+            
+        tokenizer.encode(text, false)
+            .map_err(|e| ClassifierError::TokenizerError(e.to_string()))
             .map(|encoding| encoding.get_ids().len())
     }
     
-    fn tokenize(&self, text: &str) -> Option<Vec<u32>> {
-        let tokenizer = self.tokenizer()?;
-        let max_length = self.max_sequence_length()?;
+    fn tokenize(&self, text: &str) -> Result<Vec<u32>, ClassifierError> {
+        let tokenizer = self.tokenizer()
+            .ok_or_else(|| ClassifierError::TokenizerError("Tokenizer not initialized".into()))?;
+        let max_length = self.max_sequence_length()
+            .ok_or_else(|| ClassifierError::TokenizerError("Max sequence length not set".into()))?;
         
-        let encoding = tokenizer.encode(text, false).ok()?;
+        let encoding = tokenizer.encode(text, false)
+            .map_err(|e| ClassifierError::TokenizerError(e.to_string()))?;
         let token_ids = encoding.get_ids();
         
-        if token_ids.len() > max_length {
-            error!("Input text too long: {} tokens (max: {}). Consider splitting the text into smaller chunks.", 
-                token_ids.len(), max_length);
-            return None;
+        // Safe length check
+        let token_len = usize::try_from(token_ids.len())
+            .map_err(|_| ClassifierError::ValidationError("Token length exceeds system limits".into()))?;
+            
+        if token_len > max_length {
+            return Err(ClassifierError::ValidationError(
+                format!(
+                    "Input text too long: {} tokens (max: {}). Consider splitting the text into smaller chunks.",
+                    token_len, max_length
+                )
+            ));
         }
         
-        Some(token_ids.to_vec())
+        // Safe conversion of token IDs
+        let safe_tokens: Result<Vec<u32>, _> = token_ids.iter()
+            .map(|&id| u32::try_from(id))
+            .collect();
+            
+        safe_tokens.map_err(|_| ClassifierError::TokenizerError("Invalid token ID encountered".into()))
     }
 
-    fn embed_text(&self, text: &str) -> Option<Array1<f32>> {
-        if let Some(tokens) = self.tokenize(text) {
-            self.get_embedding(&tokens)
-        } else {
-            None
-        }
+    fn embed_text(&self, text: &str) -> Result<Array1<f32>, ClassifierError> {
+        let tokens = self.tokenize(text)?;
+        self.get_embedding(&tokens)
     }
 
-    fn get_embedding(&self, tokens: &[u32]) -> Option<Array1<f32>> {
-        let session = self.session()?;
+    fn get_embedding(&self, tokens: &[u32]) -> Result<Array1<f32>, ClassifierError> {
+        let session = self.session()
+            .ok_or_else(|| ClassifierError::ModelError("Session not initialized".into()))?;
 
         let input_array = Array2::from_shape_vec((1, tokens.len()), 
-            tokens.iter().map(|&x| x as i64).collect()).ok()?;
+            tokens.iter().map(|&x| x as i64).collect())
+            .map_err(|e| ClassifierError::ModelError(format!("Failed to create input array: {}", e)))?;
         let input_dyn = input_array.into_dyn();
         let input_ids = input_dyn.as_standard_layout();
         
         let mask_array = Array2::from_shape_vec((1, tokens.len()),
-            tokens.iter().map(|&x| if x == 0 { 0i64 } else { 1i64 }).collect()).ok()?;
+            tokens.iter().map(|&x| if x == 0 { 0i64 } else { 1i64 }).collect())
+            .map_err(|e| ClassifierError::ModelError(format!("Failed to create mask array: {}", e)))?;
         let mask_dyn = mask_array.into_dyn();
         let attention_mask = mask_dyn.as_standard_layout();
         
         let input_tensors = vec![
-            Value::from_array(session.allocator(), &input_ids).ok()?,
-            Value::from_array(session.allocator(), &attention_mask).ok()?,
+            Value::from_array(session.allocator(), &input_ids)
+                .map_err(|e| ClassifierError::ModelError(format!("Failed to create input tensor: {}", e)))?,
+            Value::from_array(session.allocator(), &attention_mask)
+                .map_err(|e| ClassifierError::ModelError(format!("Failed to create mask tensor: {}", e)))?,
         ];
 
-        let outputs = session.run(input_tensors).ok()?;
-        let output_tensor: OrtOwnedTensor<f32, _> = outputs[0].try_extract().ok()?;
+        let outputs = session.run(input_tensors)
+            .map_err(|e| ClassifierError::ModelError(format!("Failed to run model: {}", e)))?;
+        let output_tensor: OrtOwnedTensor<f32, _> = outputs[0].try_extract()
+            .map_err(|e| ClassifierError::ModelError(format!("Failed to extract output tensor: {}", e)))?;
         let array = output_tensor.view();
         
         let mut embedding = Array1::zeros(array.shape()[2]);
         let embedding_slice = array.slice(ndarray::s![0, 0, ..]);
         embedding.assign(&Array1::from_iter(embedding_slice.iter().cloned()));
 
-        Some(Classifier::normalize_vector(&embedding))
+        Ok(Classifier::normalize_vector(&embedding))
     }
 }
 
@@ -250,8 +272,7 @@ impl ClassifierBuilder {
         
         // Infer embedding size by running a test input
         let test_text = "Test input to infer embedding size";
-        let embedding = self.embed_text(test_text)
-            .ok_or_else(|| ClassifierError::BuildError("Failed to infer embedding size from model".to_string()))?;
+        let embedding = self.embed_text(test_text)?;
         
         let embedding_size = embedding.len();
         info!("Inferred embedding size from model: {}", embedding_size);
@@ -333,9 +354,9 @@ impl ClassifierBuilder {
                 .enumerate()
                 .filter_map(|(i, text)| {
                     match self.embed_text(text) {
-                        Some(embedding) => Some(embedding),
-                        None => {
-                            error!("Failed to embed example {} for class '{}'", i + 1, label);
+                        Ok(embedding) => Some(embedding),
+                        Err(e) => {
+                            error!("Failed to embed example {} for class '{}': {}", i + 1, label, e);
                             None
                         }
                     }
@@ -370,7 +391,7 @@ impl ClassifierBuilder {
             tokenizer,
             session,
             embedded_prototypes: Arc::new(embedded_prototypes),
-            model_characteristics,
+            model_characteristics: self.model_characteristics.take().unwrap(),
         })
     }
 }
@@ -468,7 +489,7 @@ impl Classifier {
     /// Returns the number of tokens in the input text
     /// This is useful to check if text will fit within the model's max_sequence_length
     /// before attempting classification
-    pub fn count_tokens(&self, text: &str) -> Option<usize> {
+    pub fn count_tokens(&self, text: &str) -> Result<usize, ClassifierError> {
         TextEmbedding::count_tokens(self, text)
     }
 
@@ -479,8 +500,7 @@ impl Classifier {
         }
         
         // First check token count to provide a more specific error
-        let token_count = self.count_tokens(text)
-            .ok_or_else(|| ClassifierError::ValidationError("Failed to tokenize text".into()))?;
+        let token_count = self.count_tokens(text)?;
             
         if token_count > self.model_characteristics.max_sequence_length {
             return Err(ClassifierError::ValidationError(
@@ -492,8 +512,7 @@ impl Classifier {
             ));
         }
         
-        let input_vector = self.embed_text(text)
-            .ok_or_else(|| ClassifierError::ValidationError("Failed to generate embedding from text".into()))?;
+        let input_vector = self.embed_text(text)?;
         
         let mut scores = HashMap::new();
         for (label, prototype) in self.embedded_prototypes.as_ref() {

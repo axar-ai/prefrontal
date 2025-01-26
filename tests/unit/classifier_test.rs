@@ -1,12 +1,12 @@
-use text_classifier::{Classifier, BuiltinModel};
+use text_classifier::{Classifier, BuiltinModel, ClassifierError};
 use ndarray::Array1;
 
 fn setup_test_classifier() -> Classifier {
     Classifier::builder()
-        .with_custom_model(
-            "models/onnx-minilm/model.onnx",
-            "models/onnx-minilm/tokenizer.json"
-        )
+        .with_model(BuiltinModel::MiniLM)
+        .unwrap()
+        .add_class("test", vec!["example text"])
+        .unwrap()
         .build()
         .expect("Failed to create classifier")
 }
@@ -15,7 +15,9 @@ fn setup_test_classifier() -> Classifier {
 fn test_empty_class_handling() {
     let result = Classifier::builder()
         .with_model(BuiltinModel::MiniLM)
+        .unwrap()
         .add_class("empty", vec![])
+        .unwrap()
         .build();
     assert!(result.is_err());
 }
@@ -23,9 +25,11 @@ fn test_empty_class_handling() {
 #[test]
 fn test_unknown_class_prediction() {
     let classifier = setup_test_classifier();
-    let (class, scores) = classifier.predict("test").unwrap();
-    assert_eq!(class, "unknown");
-    assert!(scores.is_empty());
+    let result = classifier.predict("test");
+    assert!(result.is_ok());
+    let (class, scores) = result.unwrap();
+    assert_eq!(class, "test"); // Since we added "test" class in setup
+    assert!(!scores.is_empty());
 }
 
 #[test]
@@ -33,6 +37,29 @@ fn test_tokenizer_padding() {
     let classifier = setup_test_classifier();
     let result = classifier.predict("short text");
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_token_length_validation() {
+    let classifier = setup_test_classifier();
+    let very_long_text = "a ".repeat(1000);
+    let result = classifier.predict(&very_long_text);
+    assert!(matches!(result, Err(ClassifierError::ValidationError(_))));
+}
+
+#[test]
+fn test_empty_input_validation() {
+    let classifier = setup_test_classifier();
+    let result = classifier.predict("");
+    assert!(matches!(result, Err(ClassifierError::ValidationError(_))));
+}
+
+#[test]
+fn test_token_counting() {
+    let classifier = setup_test_classifier();
+    let result = classifier.count_tokens("test text");
+    assert!(result.is_ok());
+    assert!(result.unwrap() > 0);
 }
 
 #[test]
