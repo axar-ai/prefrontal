@@ -8,13 +8,37 @@ use std::convert::TryFrom;
 use super::error::ClassifierError;
 use super::utils::normalize_vector;
 
-/// Private trait for embedding functionality
+/// Provides text embedding functionality using ONNX models.
+/// 
+/// This trait handles the conversion of text into numerical embeddings through:
+/// 1. Tokenization of input text
+/// 2. Token counting and validation
+/// 3. Running the ONNX model to generate embeddings
+/// 4. Post-processing of embeddings (normalization)
+/// 
+/// The ONNX model is expected to:
+/// - Accept two inputs: input_ids and attention_mask (both shape [batch_size, sequence_length])
+/// - Output embeddings of shape [batch_size, sequence_length, embedding_size]
+/// - Use the first token's embedding as the sequence embedding
 pub(crate) trait TextEmbedding {
+    /// Returns the initialized tokenizer if available
     fn tokenizer(&self) -> Option<&Tokenizer>;
+    
+    /// Returns the initialized ONNX session if available
     fn session(&self) -> Option<&Session>;
+    
+    /// Returns the maximum sequence length the model can handle
     fn max_sequence_length(&self) -> Option<usize>;
     
-    /// Returns the number of tokens in the text without actually performing the embedding
+    /// Counts the number of tokens in the text without performing the full embedding.
+    /// 
+    /// This is useful for:
+    /// - Checking if text needs to be chunked before processing
+    /// - Validating input length without the overhead of embedding
+    /// 
+    /// # Errors
+    /// - `TokenizerError` if the tokenizer is not initialized
+    /// - `TokenizerError` if the text cannot be encoded
     fn count_tokens(&self, text: &str) -> Result<usize, ClassifierError> {
         let tokenizer = self.tokenizer()
             .ok_or_else(|| ClassifierError::TokenizerError("Tokenizer not initialized".into()))?;
@@ -24,6 +48,19 @@ pub(crate) trait TextEmbedding {
             .map(|encoding| encoding.get_ids().len())
     }
     
+    /// Converts text into token IDs suitable for model input.
+    /// 
+    /// This method:
+    /// 1. Tokenizes the input text
+    /// 2. Validates the token length against max_sequence_length
+    /// 3. Ensures safe conversion of token IDs to u32
+    /// 
+    /// # Errors
+    /// - `TokenizerError` if the tokenizer is not initialized
+    /// - `TokenizerError` if the text cannot be encoded
+    /// - `ValidationError` if the token length exceeds max_sequence_length
+    /// - `ValidationError` if token length exceeds system limits
+    /// - `TokenizerError` if any token ID is invalid
     fn tokenize(&self, text: &str) -> Result<Vec<u32>, ClassifierError> {
         let tokenizer = self.tokenizer()
             .ok_or_else(|| ClassifierError::TokenizerError("Tokenizer not initialized".into()))?;
@@ -55,11 +92,40 @@ pub(crate) trait TextEmbedding {
         safe_tokens.map_err(|_| ClassifierError::TokenizerError("Invalid token ID encountered".into()))
     }
 
+    /// Converts text into a normalized embedding vector.
+    /// 
+    /// This is the main entry point for text embedding, which:
+    /// 1. Tokenizes the input text
+    /// 2. Generates embeddings using the model
+    /// 3. Returns a normalized embedding vector
+    /// 
+    /// # Errors
+    /// - Forwards all errors from `tokenize()` and `get_embedding()`
     fn embed_text(&self, text: &str) -> Result<Array1<f32>, ClassifierError> {
         let tokens = self.tokenize(text)?;
         self.get_embedding(&tokens)
     }
 
+    /// Generates embeddings from token IDs using the ONNX model.
+    /// 
+    /// The process involves:
+    /// 1. Creating input tensors (input_ids and attention_mask)
+    /// 2. Running the ONNX model
+    /// 3. Extracting and normalizing the embedding
+    /// 
+    /// # Model Input Format
+    /// - input_ids: Token IDs [batch_size=1, sequence_length]
+    /// - attention_mask: 1 for real tokens, 0 for padding [batch_size=1, sequence_length]
+    /// 
+    /// # Model Output Format
+    /// - Shape: [batch_size=1, sequence_length, embedding_size]
+    /// - Uses first token's embedding ([0,0,:]) as sequence embedding
+    /// 
+    /// # Errors
+    /// - `ModelError` if the session is not initialized
+    /// - `ModelError` if tensor creation fails
+    /// - `ModelError` if model execution fails
+    /// - `ModelError` if output extraction fails
     fn get_embedding(&self, tokens: &[u32]) -> Result<Array1<f32>, ClassifierError> {
         let session = self.session()
             .ok_or_else(|| ClassifierError::ModelError("Session not initialized".into()))?;
