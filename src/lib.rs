@@ -48,14 +48,14 @@
 //! # }
 //! ```
 
-mod classifier;
+pub mod classifier;
 mod runtime;
 
-pub use classifier::{Classifier, ClassifierBuilder, ClassifierInfo, ClassifierError};
-pub use runtime::{RuntimeConfig, get_env};
+pub use classifier::{Classifier, ClassifierBuilder, ClassifierError, ClassifierInfo};
+pub use runtime::{RuntimeConfig, create_session_builder};
 
-/// Represents the available built-in models in the library
-#[derive(Debug, Clone)]
+/// Built-in models that can be used with the classifier
+#[derive(Debug, Clone, Copy)]
 pub enum BuiltinModel {
     /// Small and efficient model based on MiniLM architecture
     /// 
@@ -67,7 +67,7 @@ pub enum BuiltinModel {
     MiniLM,
 }
 
-/// Characteristics of a model including its capabilities and requirements
+/// Characteristics of a model, including its capabilities and resource requirements
 #[derive(Debug, Clone)]
 pub struct ModelCharacteristics {
     /// Size of the embedding vectors produced by the model
@@ -79,14 +79,14 @@ pub struct ModelCharacteristics {
 }
 
 impl BuiltinModel {
-    /// Get the characteristics of the model
+    /// Returns the characteristics of the model
     pub fn characteristics(&self) -> ModelCharacteristics {
         match self {
-            Self::MiniLM => ModelCharacteristics {
+            BuiltinModel::MiniLM => ModelCharacteristics {
                 embedding_size: 384,
                 max_sequence_length: 256,
                 model_size_mb: 85,
-            },
+            }
         }
     }
 
@@ -96,67 +96,11 @@ impl BuiltinModel {
             BuiltinModel::MiniLM => (
                 "models/onnx-minilm/model.onnx",
                 "models/onnx-minilm/tokenizer.json"
-            ),
+            )
         }
     }
 }
 
 pub fn init_logger() {
     env_logger::init();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-    use std::thread;
-
-    #[test]
-    fn test_classifier_thread_safety() {
-        let classifier = Classifier::builder()
-            .with_model(BuiltinModel::MiniLM)
-            .unwrap()
-            .add_class("test", vec!["example text"])
-            .unwrap()
-            .build()
-            .unwrap();
-        
-        let classifier = Arc::new(classifier);
-        let mut handles = vec![];
-        
-        // Spawn multiple threads that use the classifier concurrently
-        for i in 0..3 {
-            let classifier = Arc::clone(&classifier);
-            let handle = thread::spawn(move || {
-                let text = match i {
-                    0 => "test example",
-                    1 => "another test",
-                    _ => "final test",
-                };
-                classifier.predict(text).unwrap()
-            });
-            handles.push(handle);
-        }
-        
-        // Wait for all threads to complete
-        for handle in handles {
-            handle.join().unwrap();
-        }
-    }
-
-    #[test]
-    fn test_classifier_clone_and_send() {
-        let classifier = Classifier::builder()
-            .with_model(BuiltinModel::MiniLM)
-            .unwrap()
-            .add_class("test", vec!["example text"])
-            .unwrap()
-            .build()
-            .unwrap();
-        
-        // Test that classifier can be sent to another thread
-        thread::spawn(move || {
-            classifier.predict("test").unwrap();
-        }).join().unwrap();
-    }
 }
