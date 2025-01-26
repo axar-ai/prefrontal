@@ -191,4 +191,51 @@ fn test_error_handling() -> Result<(), Box<dyn std::error::Error>> {
     assert!(matches!(result, ClassifierError::ValidationError(_)));
 
     Ok(())
+}
+
+#[test]
+fn test_edge_cases() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class("test", vec!["example text"])?
+        .build()?;
+
+    // Test very short input
+    let (_class, scores) = classifier.predict("a")?;
+    assert!(!scores.is_empty());
+
+    // Test input with special characters
+    let (_class, scores) = classifier.predict("!@#$%^&*()")?;
+    assert!(!scores.is_empty());
+
+    // Test input with unicode characters
+    let (_class, scores) = classifier.predict("Hello 世界")?;
+    assert!(!scores.is_empty());
+
+    // Test input with multiple spaces
+    let (_class, scores) = classifier.predict("   multiple    spaces   text   ")?;
+    assert!(!scores.is_empty());
+
+    // Test input with newlines and tabs
+    let (_class, scores) = classifier.predict("text with\nnewlines\tand\ttabs")?;
+    assert!(!scores.is_empty());
+
+    // Test maximum number of classes
+    let mut builder = Classifier::builder().with_model(BuiltinModel::MiniLM)?;
+    for i in 0..100 {  // Test with 100 classes
+        builder = builder.add_class(
+            &format!("class_{}", i),
+            vec!["example text"]
+        )?;
+    }
+    let classifier = builder.build()?;
+    let (_class, scores) = classifier.predict("test text")?;
+    assert_eq!(scores.len(), 100);
+
+    // Test with maximum length text that should be accepted
+    let text = "test ".repeat(50);  // Should be under max_sequence_length but still long
+    let (_class, scores) = classifier.predict(&text)?;
+    assert!(!scores.is_empty());
+
+    Ok(())
 } 
