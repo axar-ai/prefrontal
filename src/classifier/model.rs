@@ -12,6 +12,11 @@ use crate::ModelCharacteristics;
 /// 
 /// # Thread Safety
 /// 
+/// This type is automatically `Send + Sync` because all of its fields are thread-safe:
+/// - `String` and `ModelCharacteristics` are `Send + Sync`
+/// - `Arc<T>` provides thread-safe shared ownership
+/// - `Tokenizer`, `Session`, and `HashMap` are wrapped in `Arc`
+/// 
 /// Single-thread usage:
 /// ```rust
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -56,9 +61,13 @@ pub struct Classifier {
     pub model_characteristics: ModelCharacteristics,
 }
 
-// Explicitly implement Send + Sync
-unsafe impl Send for Classifier {}
-unsafe impl Sync for Classifier {}
+// Compile-time verification of thread-safety
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    fn verify_thread_safety() {
+        assert_send_sync::<Classifier>();
+    }
+};
 
 impl TextEmbedding for Classifier {
     fn tokenizer(&self) -> Option<&Tokenizer> {
