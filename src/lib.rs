@@ -49,10 +49,12 @@
 //! ```
 
 mod classifier;
+mod runtime;
 
 pub use classifier::Classifier;
 pub use classifier::ClassifierBuilder;
 pub use classifier::ClassifierInfo;
+pub use runtime::{RuntimeConfig, get_env};
 
 /// Represents the different types of errors that can occur in the text classifier.
 #[derive(Debug)]

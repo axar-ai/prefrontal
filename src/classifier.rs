@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use tokenizers::Tokenizer;
-use ort::{Environment, Session, SessionBuilder, Value, tensor::OrtOwnedTensor, OrtError};
+use ort::{Session, Value, tensor::OrtOwnedTensor, OrtError};
 use ndarray::{Array1, Array2};
 use log::{info, error};
 use std::sync::Arc;
 use crate::ClassifierError;
 use crate::BuiltinModel;
 use crate::ModelCharacteristics;
+use crate::runtime::{RuntimeConfig, create_session_builder};
 use std::convert::TryFrom;
 
 /// A builder for constructing a Classifier with a fluent interface.
@@ -18,6 +19,7 @@ pub struct ClassifierBuilder {
     session: Option<Session>,
     class_examples: HashMap<String, Vec<String>>,
     model_characteristics: Option<ModelCharacteristics>,
+    runtime_config: RuntimeConfig,
 }
 
 /// Private trait for embedding functionality
@@ -153,28 +155,14 @@ impl ClassifierBuilder {
             session: None,
             class_examples: HashMap::new(),
             model_characteristics: None,
+            runtime_config: RuntimeConfig::default(),
         }
     }
 
-    /// Validates that the model has the expected input/output structure
-    fn validate_model(session: &Session) -> Result<(), ClassifierError> {
-        // Check inputs
-        let inputs = &session.inputs;
-        if inputs.len() < 2 {
-            return Err(ClassifierError::ModelError(
-                format!("Model must have at least 2 inputs (input_ids and attention_mask), found {}", inputs.len())
-            ));
-        }
-
-        // Check outputs
-        let outputs = &session.outputs;
-        if outputs.is_empty() {
-            return Err(ClassifierError::ModelError(
-                "Model must have at least 1 output for embeddings".to_string()
-            ));
-        }
-
-        Ok(())
+    /// Sets the runtime configuration for ONNX model execution
+    pub fn with_runtime_config(mut self, config: RuntimeConfig) -> Self {
+        self.runtime_config = config;
+        self
     }
 
     /// Sets the model to use for classification
@@ -203,13 +191,8 @@ impl ClassifierBuilder {
             })?;
         info!("Tokenizer loaded successfully");
 
-        // Initialize ONNX Runtime and load model
-        let env = Arc::new(Environment::builder()
-            .with_name("text_classifier")
-            .build()
-            .map_err(|e| ClassifierError::BuildError(format!("Failed to create environment: {}", e)))?);
-        
-        let session = SessionBuilder::new(&env)?
+        // Create session using the singleton environment
+        let session = create_session_builder(&self.runtime_config)?
             .with_model_from_file(model_path)?;
 
         // Validate model structure
@@ -253,13 +236,8 @@ impl ClassifierBuilder {
             })?;
         info!("Tokenizer loaded successfully");
 
-        // Initialize ONNX Runtime and load model
-        let env = Arc::new(Environment::builder()
-            .with_name("text_classifier")
-            .build()
-            .map_err(|e| ClassifierError::BuildError(format!("Failed to create environment: {}", e)))?);
-        
-        let session = SessionBuilder::new(&env)?
+        // Create session using the singleton environment
+        let session = create_session_builder(&self.runtime_config)?
             .with_model_from_file(model_path)?;
 
         // Validate model structure
@@ -393,6 +371,27 @@ impl ClassifierBuilder {
             embedded_prototypes: Arc::new(embedded_prototypes),
             model_characteristics: self.model_characteristics.take().unwrap(),
         })
+    }
+
+    /// Validates that the model has the expected input/output structure
+    fn validate_model(session: &Session) -> Result<(), ClassifierError> {
+        // Check inputs
+        let inputs = &session.inputs;
+        if inputs.len() < 2 {
+            return Err(ClassifierError::ModelError(
+                format!("Model must have at least 2 inputs (input_ids and attention_mask), found {}", inputs.len())
+            ));
+        }
+
+        // Check outputs
+        let outputs = &session.outputs;
+        if outputs.is_empty() {
+            return Err(ClassifierError::ModelError(
+                "Model must have at least 1 output for embeddings".to_string()
+            ));
+        }
+
+        Ok(())
     }
 }
 /// A thread-safe text classifier using ONNX models for embedding and classification.

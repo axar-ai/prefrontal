@@ -12,6 +12,9 @@ crate-type = ["cdylib", "rlib"]
 name = "text_classifier_bin"
 path = "src/main.rs"
 
+[features]
+default = []
+
 [dependencies]
 # Core dependencies
 tokenizers = "0.15"
@@ -24,6 +27,7 @@ thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 cbindgen = "0.26"
 tokio = { version = "1.36", features = ["full"] }
+lazy_static = "1.4"
 
 [[bench]]
 name = "classifier_benchmark"
