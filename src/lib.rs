@@ -1,3 +1,53 @@
+//! A thread-safe text classifier library using ONNX models for embedding and classification.
+//! 
+//! # Basic Usage
+//! 
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use text_classifier::{Classifier, BuiltinModel};
+//! 
+//! let classifier = Classifier::builder()
+//!     .with_model(BuiltinModel::MiniLM)?
+//!     .add_class("positive", vec!["great", "awesome", "excellent"])?
+//!     .add_class("negative", vec!["bad", "terrible", "awful"])?
+//!     .build()?;
+//! 
+//! let (label, scores) = classifier.predict("This is a great movie!")?;
+//! println!("Predicted class: {}", label);
+//! # Ok(())
+//! # }
+//! ```
+//! 
+//! # Thread Safety
+//! 
+//! The classifier is thread-safe and can be shared across threads using `Arc`:
+//! 
+//! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use text_classifier::{Classifier, BuiltinModel};
+//! use std::sync::Arc;
+//! use std::thread;
+//! 
+//! let classifier = Arc::new(Classifier::builder()
+//!     .with_model(BuiltinModel::MiniLM)?
+//!     .add_class("example", vec!["sample text"])?
+//!     .build()?);
+//! 
+//! let mut handles = vec![];
+//! for _ in 0..3 {
+//!     let classifier = Arc::clone(&classifier);
+//!     handles.push(thread::spawn(move || {
+//!         classifier.predict("test text").unwrap();
+//!     }));
+//! }
+//! 
+//! for handle in handles {
+//!     handle.join().unwrap();
+//! }
+//! # Ok(())
+//! # }
+//! ```
+
 mod classifier;
 
 pub use classifier::Classifier;

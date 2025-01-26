@@ -374,11 +374,44 @@ impl ClassifierBuilder {
         })
     }
 }
-
-/// A thread-safe text classifier that uses ONNX models for embedding and classification.
+/// A thread-safe text classifier using ONNX models for embedding and classification.
 /// 
-/// This classifier is safe to share across threads and can handle concurrent classification
-/// requests. The underlying ONNX session and tokenizer are thread-safe.
+/// # Thread Safety
+/// 
+/// Single-thread usage:
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use text_classifier::{Classifier, BuiltinModel};
+/// 
+/// let classifier = Classifier::builder()
+///     .with_model(BuiltinModel::MiniLM)?
+///     .add_class("example", vec!["sample text"])?
+///     .build()?;
+/// 
+/// classifier.predict("test text")?;
+/// # Ok(())
+/// # }
+/// ```
+/// 
+/// Multi-thread usage:
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use text_classifier::{Classifier, BuiltinModel};
+/// use std::sync::Arc;
+/// use std::thread;
+/// 
+/// let classifier = Arc::new(Classifier::builder()
+///     .with_model(BuiltinModel::MiniLM)?
+///     .add_class("example", vec!["sample text"])?
+///     .build()?);
+/// 
+/// let classifier_clone = Arc::clone(&classifier);
+/// thread::spawn(move || {
+///     classifier_clone.predict("test text").unwrap();
+/// });
+/// # Ok(())
+/// # }
+/// ```
 pub struct Classifier {
     model_path: String,
     tokenizer_path: String,
