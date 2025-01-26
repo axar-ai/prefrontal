@@ -50,3 +50,6 @@ panic = "abort"
 
 [profile.dev]
 panic = "unwind"
+
+[profile.bench]
+panic = "abort"
