@@ -1,6 +1,21 @@
 # Prefrontal
 
-A blazing fast text classifier for real-time agent routing, built in Rust. Prefrontal provides a simple yet powerful interface for routing conversations to the right workflow or agent based on text content, powered by transformer-based models.
+A blazing fast text classifier for real-time agent routing, built in Rust. Prefrontal provides a simple yet powerful interface for routing conversations to the right agent or department based on text content, powered by transformer-based models.
+
+## System Requirements
+
+To use Prefrontal in your project, you need:
+
+1. **ONNX Runtime** (v1.16.3 or later)
+
+   - Linux: `sudo apt-get install libonnxruntime`
+   - macOS: `brew install onnxruntime`
+   - Windows: Download from [ONNX Runtime Releases](https://github.com/microsoft/onnxruntime/releases)
+
+2. **System Dependencies**
+   - Linux: `sudo apt-get install cmake pkg-config libssl-dev`
+   - macOS: `brew install cmake pkg-config openssl`
+   - Windows: Install CMake and OpenSSL
 
 ## Features
 
@@ -130,12 +145,6 @@ Each routing destination requires:
 - A description that explains the category
 - Optional examples to help train the classifier
 
-The descriptions are useful for:
-
-- Documentation of routing logic
-- Understanding the classifier's capabilities
-- Future extensibility for zero-shot classification
-
 ## Error Handling
 
 The library provides detailed error types:
@@ -189,7 +198,55 @@ thread::spawn(move || {
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+### Developer Prerequisites
+
+If you want to contribute to Prefrontal or build it from source, you'll need additional tools:
+
+1. **Git LFS** (required for working with model files)
+   - Linux: `sudo apt-get install git-lfs`
+   - macOS: `brew install git-lfs`
+   - Windows: Download from [Git LFS](https://git-lfs.com)
+
+### Development Setup
+
+1. Clone the repository with Git LFS:
+
+```bash
+git lfs install
+git clone https://github.com/yourusername/prefrontal.git
+cd prefrontal
+git lfs pull
+```
+
+2. Install dependencies as described in System Requirements
+
+3. Build and test:
+
+```bash
+cargo build
+cargo test
+```
+
+### Model Files
+
+The repository includes pre-trained models in the `models/` directory:
+
+- Only `.onnx` and `tokenizer.json` files are tracked
+- Large model files are handled by Git LFS
+- You can add custom models in any subdirectory under `models/`
+
+### Running Tests
+
+```bash
+# Run all tests
+cargo test
+
+# Run specific test
+cargo test test_name
+
+# Run benchmarks
+cargo bench
+```
 
 ## License
 
