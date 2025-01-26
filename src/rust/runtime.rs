@@ -1,16 +1,14 @@
-use lazy_static::lazy_static;
-use ort::{Environment, GraphOptimizationLevel, OrtError};
-use std::sync::Arc;
+use ort::session::builder::{GraphOptimizationLevel, SessionBuilder};
+use ort::session::Session;
+use ort::Result as OrtResult;
+use std::sync::Once;
 
-lazy_static! {
-    static ref ONNX_ENV: Arc<Environment> = init_onnx_environment()
-        .expect("Failed to initialize ONNX Runtime environment");
-}
+static INIT: Once = Once::new();
 
 #[derive(Debug)]
 pub struct RuntimeConfig {
-    pub inter_threads: i16,
-    pub intra_threads: i16,
+    pub inter_threads: usize,
+    pub intra_threads: usize,
     pub optimization_level: GraphOptimizationLevel,
 }
 
@@ -39,20 +37,23 @@ impl Clone for RuntimeConfig {
     }
 }
 
-fn init_onnx_environment() -> Result<Arc<Environment>, OrtError> {
-    let builder = Environment::builder()
+fn init_onnx_environment() -> OrtResult<()> {
+    ort::init()
         .with_name("prefrontal")
-        .with_log_level(ort::LoggingLevel::Warning);
-
-    Ok(Arc::new(builder.build()?))
+        .commit()?;
+    Ok(())
 }
 
-pub fn get_env() -> Arc<Environment> {
-    ONNX_ENV.clone()
+pub fn ensure_initialized() -> OrtResult<()> {
+    INIT.call_once(|| {
+        init_onnx_environment().expect("Failed to initialize ONNX Runtime environment");
+    });
+    Ok(())
 }
 
-pub fn create_session_builder(config: &RuntimeConfig) -> Result<ort::SessionBuilder, OrtError> {
-    let mut builder = ort::SessionBuilder::new(&get_env())?;
+pub fn create_session_builder(config: &RuntimeConfig) -> OrtResult<SessionBuilder> {
+    ensure_initialized()?;
+    let mut builder = Session::builder()?;
 
     // Configure threading
     if config.inter_threads > 0 {
@@ -79,10 +80,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_environment_singleton() {
-        let env1 = get_env();
-        let env2 = get_env();
-        assert!(Arc::ptr_eq(&env1, &env2));
+    fn test_environment_initialization() {
+        assert!(ensure_initialized().is_ok());
+        assert!(ensure_initialized().is_ok()); // Second call should be fine
     }
 
     #[test]

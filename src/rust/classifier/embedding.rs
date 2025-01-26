@@ -1,9 +1,9 @@
 use tokenizers::Tokenizer;
-use ort::Session;
+use ort::session::Session;
 use ndarray::{Array1, Array2};
-use ort::tensor::OrtOwnedTensor;
-use ort::Value;
+use ort::value::Tensor;
 use std::convert::TryFrom;
+use std::collections::HashMap;
 
 use super::error::ClassifierError;
 use super::utils::normalize_vector;
@@ -142,21 +142,19 @@ pub(crate) trait TextEmbedding {
         let mask_dyn = mask_array.into_dyn();
         let attention_mask = mask_dyn.as_standard_layout();
         
-        let input_tensors = vec![
-            Value::from_array(session.allocator(), &input_ids)
-                .map_err(|e| ClassifierError::ModelError(format!("Failed to create input tensor: {}", e)))?,
-            Value::from_array(session.allocator(), &attention_mask)
-                .map_err(|e| ClassifierError::ModelError(format!("Failed to create mask tensor: {}", e)))?,
-        ];
+        let mut input_tensors = HashMap::new();
+        input_tensors.insert("input_ids", Tensor::from_array(&input_ids)
+            .map_err(|e| ClassifierError::ModelError(format!("Failed to create input tensor: {}", e)))?);
+        input_tensors.insert("attention_mask", Tensor::from_array(&attention_mask)
+            .map_err(|e| ClassifierError::ModelError(format!("Failed to create mask tensor: {}", e)))?);
 
         let outputs = session.run(input_tensors)
             .map_err(|e| ClassifierError::ModelError(format!("Failed to run model: {}", e)))?;
-        let output_tensor: OrtOwnedTensor<f32, _> = outputs[0].try_extract()
+        let output_tensor = outputs[0].try_extract_tensor::<f32>()
             .map_err(|e| ClassifierError::ModelError(format!("Failed to extract output tensor: {}", e)))?;
-        let array = output_tensor.view();
         
-        let mut embedding = Array1::zeros(array.shape()[2]);
-        let embedding_slice = array.slice(ndarray::s![0, 0, ..]);
+        let mut embedding = Array1::zeros(output_tensor.shape()[2]);
+        let embedding_slice = output_tensor.slice(ndarray::s![0, 0, ..]);
         embedding.assign(&Array1::from_iter(embedding_slice.iter().cloned()));
 
         Ok(normalize_vector(&embedding))

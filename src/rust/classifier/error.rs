@@ -1,4 +1,4 @@
-use ort::OrtError;
+use ort::Error as OrtError;
 use std::fmt;
 
 /// Represents the different types of errors that can occur in the text classifier.

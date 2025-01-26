@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
-use ort::Session;
+use ort::session::Session;
 use ndarray::Array1;
 
 use super::error::ClassifierError;

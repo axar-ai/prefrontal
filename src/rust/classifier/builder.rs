@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tokenizers::Tokenizer;
-use ort::Session;
+use ort::session::Session;
 use ndarray::Array1;
 use log::{info, error};
 use std::sync::Arc;
@@ -151,7 +151,7 @@ impl ClassifierBuilder {
 
         // Create session using the singleton environment
         let session = create_session_builder(&self.runtime_config)?
-            .with_model_from_file(model_path)?;
+            .commit_from_file(model_path)?;
 
         // Validate model structure
         Self::validate_model(&session)?;
@@ -196,7 +196,7 @@ impl ClassifierBuilder {
 
         // Create session using the singleton environment
         let session = create_session_builder(&self.runtime_config)?
-            .with_model_from_file(model_path)?;
+            .commit_from_file(model_path)?;
 
         // Validate model structure
         Self::validate_model(&session)?;
