@@ -11,6 +11,34 @@ use super::model::Classifier;
 use super::utils::{normalize_vector, average_vectors};
 use crate::{BuiltinModel, ModelCharacteristics, runtime::{RuntimeConfig, create_session_builder}};
 
+/// Represents a class definition with required label, description and optional examples
+#[derive(Debug, Clone)]
+pub struct ClassDefinition {
+    /// The unique identifier for the class
+    pub label: String,
+    /// A detailed description of what this class represents
+    pub description: String,
+    /// Optional examples of text that belong to this class
+    pub examples: Option<Vec<String>>,
+}
+
+impl ClassDefinition {
+    /// Creates a new class definition with required label and description
+    pub fn new(label: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            description: description.into(),
+            examples: None,
+        }
+    }
+
+    /// Adds examples to the class definition
+    pub fn with_examples(mut self, examples: Vec<impl Into<String>>) -> Self {
+        self.examples = Some(examples.into_iter().map(Into::into).collect());
+        self
+    }
+}
+
 /// A builder for constructing a Classifier with a fluent interface.
 #[derive(Default, Debug)]
 pub struct ClassifierBuilder {
@@ -19,6 +47,7 @@ pub struct ClassifierBuilder {
     tokenizer: Option<Tokenizer>,
     session: Option<Session>,
     class_examples: HashMap<String, Vec<String>>,
+    class_descriptions: HashMap<String, String>,  // Added to store descriptions
     model_characteristics: Option<ModelCharacteristics>,
     runtime_config: RuntimeConfig,
 }
@@ -46,6 +75,7 @@ impl ClassifierBuilder {
             tokenizer: None,
             session: None,
             class_examples: HashMap::new(),
+            class_descriptions: HashMap::new(),
             model_characteristics: None,
             runtime_config: RuntimeConfig::default(),
         }
@@ -167,58 +197,77 @@ impl ClassifierBuilder {
     /// 
     /// # Arguments
     /// * `label` - The class label to validate
+    /// * `description` - The class description to validate
     /// * `examples` - The examples to validate
     /// 
     /// # Returns
     /// * `Ok(())` if validation passes
     /// * `Err(ClassifierError::ValidationError)` with a descriptive message if validation fails
-    fn validate_class_data(label: &str, examples: &[impl AsRef<str>]) -> Result<(), ClassifierError> {
+    fn validate_class_data(
+        label: &str,
+        description: &str,
+        examples: &[impl AsRef<str>]
+    ) -> Result<(), ClassifierError> {
         if label.is_empty() {
             return Err(ClassifierError::ValidationError("Class label cannot be empty".into()));
         }
-        if examples.is_empty() {
-            return Err(ClassifierError::ValidationError("Examples list cannot be empty".into()));
+        if description.is_empty() {
+            return Err(ClassifierError::ValidationError("Class description cannot be empty".into()));
         }
-        for (i, example) in examples.iter().enumerate() {
-            if example.as_ref().is_empty() {
-                return Err(ClassifierError::ValidationError(
-                    format!("Example {} cannot be empty", i + 1)
-                ));
-            }
+        if examples.is_empty() {
+            return Err(ClassifierError::ValidationError(
+                format!("Class '{}' must have at least one example", label)
+            ));
+        }
+        if let Some(pos) = examples.iter().position(|e| e.as_ref().is_empty()) {
+            return Err(ClassifierError::ValidationError(
+                format!("Example {} cannot be empty", pos + 1)
+            ));
         }
         Ok(())
     }
 
-    /// Adds a class with example texts.
+    /// Adds a class with its definition
     /// 
     /// # Arguments
-    /// * `label` - The class label
-    /// * `examples` - A list of example texts for this class
+    /// * `class_def` - The class definition containing label, description, and optional examples
     /// 
     /// # Returns
     /// * `Ok(Self)` if the class was added successfully
     /// * `Err(ClassifierError::ValidationError)` if validation fails
     /// 
-    /// # Errors
-    /// Returns an error if:
-    /// - The class label is empty
-    /// - No examples are provided
-    /// - Any example text is empty
-    /// - The class label already exists
-    pub fn add_class(mut self, label: &str, examples: Vec<&str>) -> Result<Self, ClassifierError> {
-        // Validate the class data
-        Self::validate_class_data(label, &examples)?;
-        
+    /// # Example
+    /// ```
+    /// # use text_classifier::{Classifier, ClassDefinition, BuiltinModel};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let classifier = Classifier::builder()
+    ///     .with_model(BuiltinModel::MiniLM)?
+    ///     .add_class(
+    ///         ClassDefinition::new("tech", "Technology related content")
+    ///             .with_examples(vec!["computer programming", "software development"])
+    ///     )?
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_class(mut self, class_def: ClassDefinition) -> Result<Self, ClassifierError> {
         // Check for duplicate class
-        if self.class_examples.contains_key(label) {
-            return Err(ClassifierError::ValidationError(format!("Class '{}' already exists", label)));
+        if self.class_examples.contains_key(&class_def.label) {
+            return Err(ClassifierError::ValidationError(
+                format!("Class '{}' already exists", class_def.label)
+            ));
         }
 
-        // Add the class if validation passes
-        self.class_examples.insert(
-            label.to_string(), 
-            examples.iter().map(|s| s.to_string()).collect()
-        );
+        // Get examples, defaulting to empty vec if None
+        let examples = class_def.examples.unwrap_or_default();
+        
+        // Validate all class data
+        Self::validate_class_data(&class_def.label, &class_def.description, &examples)?;
+
+        // Store class data
+        self.class_descriptions.insert(class_def.label.clone(), class_def.description);
+        self.class_examples.insert(class_def.label, examples);
+
         Ok(self)
     }
 
@@ -234,11 +283,6 @@ impl ClassifierBuilder {
         let model_characteristics = self.model_characteristics
             .clone()
             .ok_or_else(|| ClassifierError::BuildError("Model characteristics not set".to_string()))?;
-
-        // Validate all class data
-        for (label, examples) in &self.class_examples {
-            Self::validate_class_data(label, examples)?;
-        }
 
         let mut embedded_prototypes = HashMap::new();
         
@@ -288,6 +332,7 @@ impl ClassifierBuilder {
             tokenizer,
             session,
             embedded_prototypes: Arc::new(embedded_prototypes),
+            class_descriptions: Arc::new(self.class_descriptions),
             model_characteristics: self.model_characteristics.take().unwrap(),
         })
     }

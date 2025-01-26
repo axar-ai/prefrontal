@@ -4,12 +4,18 @@
 //! 
 //! ```rust
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use text_classifier::{Classifier, BuiltinModel};
+//! use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
 //! 
 //! let classifier = Classifier::builder()
 //!     .with_model(BuiltinModel::MiniLM)?
-//!     .add_class("positive", vec!["great", "awesome", "excellent"])?
-//!     .add_class("negative", vec!["bad", "terrible", "awful"])?
+//!     .add_class(
+//!         ClassDefinition::new("positive", "Content with positive sentiment")
+//!             .with_examples(vec!["great", "awesome", "excellent"])
+//!     )?
+//!     .add_class(
+//!         ClassDefinition::new("negative", "Content with negative sentiment")
+//!             .with_examples(vec!["bad", "terrible", "awful"])
+//!     )?
 //!     .build()?;
 //! 
 //! let (label, scores) = classifier.predict("This is a great movie!")?;
@@ -24,13 +30,16 @@
 //! 
 //! ```rust
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use text_classifier::{Classifier, BuiltinModel};
+//! use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
 //! use std::sync::Arc;
 //! use std::thread;
 //! 
 //! let classifier = Arc::new(Classifier::builder()
 //!     .with_model(BuiltinModel::MiniLM)?
-//!     .add_class("example", vec!["sample text"])?
+//!     .add_class(
+//!         ClassDefinition::new("example", "Example class")
+//!             .with_examples(vec!["sample text"])
+//!     )?
 //!     .build()?);
 //! 
 //! let mut handles = vec![];
@@ -51,7 +60,7 @@
 pub mod classifier;
 mod runtime;
 
-pub use classifier::{Classifier, ClassifierBuilder, ClassifierError, ClassifierInfo};
+pub use classifier::{Classifier, ClassifierBuilder, ClassifierError, ClassifierInfo, ClassDefinition};
 pub use runtime::{RuntimeConfig, create_session_builder};
 
 /// Built-in models that can be used with the classifier

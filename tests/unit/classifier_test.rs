@@ -1,4 +1,4 @@
-use text_classifier::{Classifier, BuiltinModel, ClassifierError};
+use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
 use ndarray::Array1;
 use std::sync::Arc;
 use std::thread;
@@ -86,29 +86,147 @@ fn test_normalize_vector() {
 }
 
 #[test]
-fn test_classifier_thread_safety() {
-    let classifier = setup_test_classifier();
-    let classifier = Arc::new(classifier);
+fn test_thread_safety() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = Arc::new(
+        Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)?
+            .add_class(
+                ClassDefinition::new(
+                    "sports",
+                    "Sports and athletic activities"
+                ).with_examples(vec!["football game", "basketball match"])
+            )?
+            .build()?
+    );
+
     let mut handles = vec![];
     
-    // Spawn multiple threads that use the classifier concurrently
-    for i in 0..3 {
-        let classifier = Arc::clone(&classifier);
+    for _ in 0..4 {
+        let classifier_clone = Arc::clone(&classifier);
         let handle = thread::spawn(move || {
-            let text = match i {
-                0 => "test example",
-                1 => "another test",
-                _ => "final test",
-            };
-            classifier.predict(text).unwrap()
+            let (class, scores) = classifier_clone.predict("soccer match").unwrap();
+            assert_eq!(class, "sports");
+            assert!(scores["sports"] > 0.5);
         });
         handles.push(handle);
     }
-    
-    // Wait for all threads to complete
+
     for handle in handles {
         handle.join().unwrap();
     }
+
+    Ok(())
+}
+
+#[test]
+fn test_class_validation() -> Result<(), Box<dyn std::error::Error>> {
+    // Test invalid class label
+    assert!(Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class(ClassDefinition::new("", "Empty label"))
+        .is_err());
+    
+    // Test invalid description
+    assert!(Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class(ClassDefinition::new("label", ""))
+        .is_err());
+    
+    // Test invalid examples
+    assert!(Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class(
+            ClassDefinition::new("label", "Test class")
+                .with_examples(vec![""])
+        )
+        .is_err());
+    
+    Ok(())
+}
+
+#[test]
+fn test_class_management() -> Result<(), Box<dyn std::error::Error>> {
+    let mut classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class(
+            ClassDefinition::new(
+                "sports",
+                "Sports and athletic activities"
+            ).with_examples(vec!["football game"])
+        )?
+        .build()?;
+
+    // Test class info retrieval
+    let classes = classifier.get_classes();
+    assert!(classes.contains(&String::from("sports")));
+    assert_eq!(classes.len(), 1);
+
+    // Test class removal
+    classifier.remove_class("sports")?;
+    assert_eq!(classifier.get_classes().len(), 0);
+
+    // Test adding class after initialization
+    classifier.add_class(
+        ClassDefinition::new(
+            "tech",
+            "Technology and computers"
+        ).with_examples(vec!["programming code"])
+    )?;
+    assert!(classifier.get_classes().contains(&String::from("tech")));
+
+    Ok(())
+}
+
+#[test]
+fn test_prediction_validation() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class(
+            ClassDefinition::new(
+                "sports",
+                "Sports and athletic activities"
+            ).with_examples(vec!["football game"])
+        )?
+        .build()?;
+
+    // Test empty input
+    assert!(classifier.predict("").is_err());
+    
+    // Test very long input (should be truncated internally)
+    let long_text = "a".repeat(1000);
+    let (class, _) = classifier.predict(&long_text)?;
+    assert_eq!(class, "sports"); // Should still work with truncation
+    
+    Ok(())
+}
+
+#[test]
+fn test_zero_shot_predictions() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class(
+            ClassDefinition::new(
+                "sports",
+                "Content about sports and athletics"
+            )
+        )?
+        .add_class(
+            ClassDefinition::new(
+                "tech",
+                "Content about technology and computers"
+            )
+        )?
+        .build()?;
+
+    let (class, scores) = classifier.predict("The latest software update")?;
+    assert_eq!(class, "tech");
+    assert!(scores["tech"] > scores["sports"]);
+
+    let (class, scores) = classifier.predict("Championship game highlights")?;
+    assert_eq!(class, "sports");
+    assert!(scores["sports"] > scores["tech"]);
+
+    Ok(())
 }
 
 #[test]

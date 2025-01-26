@@ -1,11 +1,16 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use text_classifier::{Classifier, BuiltinModel};
+use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
 
 fn setup_benchmark_classifier() -> Classifier {
     Classifier::builder()
         .with_model(BuiltinModel::MiniLM)
         .unwrap()
-        .add_class("default", vec!["sample text"])
+        .add_class(
+            ClassDefinition::new(
+                "default",
+                "Default class for benchmarking"
+            ).with_examples(vec!["sample text"])
+        )
         .unwrap()
         .build()
         .unwrap()
@@ -61,7 +66,12 @@ fn bench_classification(c: &mut Criterion) {
         let classifier = Classifier::builder()
             .with_model(BuiltinModel::MiniLM)
             .unwrap()
-            .add_class("sports", vec!["football game", "basketball match"])
+            .add_class(
+                ClassDefinition::new(
+                    "sports",
+                    "Sports-related content"
+                ).with_examples(vec!["football game", "basketball match"])
+            )
             .unwrap()
             .build()
             .unwrap();
@@ -79,8 +89,10 @@ fn bench_classification(c: &mut Criterion) {
             
         for i in 0..10 {
             builder = builder.add_class(
-                &format!("class_{}", i),
-                vec!["example 1", "example 2", "example 3"]
+                ClassDefinition::new(
+                    &format!("class_{}", i),
+                    &format!("Test class {}", i)
+                ).with_examples(vec!["example 1", "example 2", "example 3"])
             ).unwrap();
         }
         
@@ -104,8 +116,10 @@ fn bench_build_time(c: &mut Criterion) {
             
         for i in 0..10 {
             builder = builder.add_class(
-                &format!("class_{}", i),
-                vec!["example 1", "example 2", "example 3"]
+                ClassDefinition::new(
+                    &format!("class_{}", i),
+                    &format!("Test class {}", i)
+                ).with_examples(vec!["example 1", "example 2", "example 3"])
             ).unwrap();
         }
         

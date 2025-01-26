@@ -49,7 +49,7 @@ strip = true
 panic = "abort"
 
 [profile.dev]
-panic = "abort"
+panic = "unwind"
 
 [profile.test]
-panic = "abort"
+panic = "unwind"

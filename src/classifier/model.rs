@@ -20,11 +20,14 @@ use crate::ModelCharacteristics;
 /// Single-thread usage:
 /// ```rust
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use text_classifier::{Classifier, BuiltinModel};
+/// use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
 /// 
 /// let classifier = Classifier::builder()
 ///     .with_model(BuiltinModel::MiniLM)?
-///     .add_class("example", vec!["sample text"])?
+///     .add_class(
+///         ClassDefinition::new("example", "Example class")
+///             .with_examples(vec!["sample text"])
+///     )?
 ///     .build()?;
 /// 
 /// classifier.predict("test text")?;
@@ -35,13 +38,16 @@ use crate::ModelCharacteristics;
 /// Multi-thread usage:
 /// ```rust
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use text_classifier::{Classifier, BuiltinModel};
+/// use text_classifier::{Classifier, BuiltinModel, ClassDefinition};
 /// use std::sync::Arc;
 /// use std::thread;
 /// 
 /// let classifier = Arc::new(Classifier::builder()
 ///     .with_model(BuiltinModel::MiniLM)?
-///     .add_class("example", vec!["sample text"])?
+///     .add_class(
+///         ClassDefinition::new("example", "Example class")
+///             .with_examples(vec!["sample text"])
+///     )?
 ///     .build()?);
 /// 
 /// let classifier_clone = Arc::clone(&classifier);
@@ -58,6 +64,7 @@ pub struct Classifier {
     pub tokenizer: Arc<Tokenizer>,
     pub session: Arc<Session>,
     pub embedded_prototypes: Arc<HashMap<String, Array1<f32>>>,
+    pub class_descriptions: Arc<HashMap<String, String>>,
     pub model_characteristics: ModelCharacteristics,
 }
 
@@ -89,14 +96,14 @@ impl Classifier {
         super::builder::ClassifierBuilder::new()
     }
 
-    /// Returns comprehensive information about the current state of the classifier,
-    /// including model paths, number of classes, class labels, and embedding dimensions.
+    /// Returns information about the classifier's current state
     pub fn info(&self) -> super::ClassifierInfo {
         super::ClassifierInfo {
             model_path: self.model_path.clone(),
             tokenizer_path: self.tokenizer_path.clone(),
             num_classes: self.embedded_prototypes.len(),
             class_labels: self.embedded_prototypes.keys().cloned().collect(),
+            class_descriptions: self.class_descriptions.as_ref().clone(),
             embedding_size: self.model_characteristics.embedding_size,
         }
     }

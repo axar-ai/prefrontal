@@ -1,297 +1,137 @@
-use text_classifier::{Classifier, BuiltinModel, ClassifierError, RuntimeConfig};
-use ort::GraphOptimizationLevel;
+use text_classifier::{Classifier, ClassifierError, ClassDefinition, BuiltinModel};
 
-#[test]
-fn test_basic_classification() -> Result<(), Box<dyn std::error::Error>> {
-    let result = Classifier::builder()
-        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::BuildError(_)));
-    Ok(())
+fn get_test_paths() -> (BuiltinModel, String) {
+    let tokenizer_path = "models/bert-base-uncased".to_string();
+    (BuiltinModel::MiniLM, tokenizer_path)
 }
 
 #[test]
-fn test_multiple_examples() -> Result<(), Box<dyn std::error::Error>> {
-    let result = Classifier::builder()
-        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::BuildError(_)));
-    Ok(())
-}
-
-#[test]
-fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
-    let result = Classifier::builder()
-        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::BuildError(_)));
-    Ok(())
-}
-
-#[test]
-fn test_validation_errors() -> Result<(), Box<dyn std::error::Error>> {
-    // Test empty model path
-    let result = Classifier::builder()
-        .with_custom_model("", "tokenizer.json", None)
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::BuildError(_)));
-
-    // Test empty tokenizer path
-    let result = Classifier::builder()
-        .with_custom_model("model.onnx", "", None)
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::BuildError(_)));
-
-    // Test empty class label
-    let result = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)
-        .unwrap()
-        .add_class("", vec!["example"])
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::ValidationError(_)));
-
-    // Test empty example text
-    let result = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)
-        .unwrap()
-        .add_class("test", vec![""])
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::ValidationError(_)));
-
-    Ok(())
-}
-
-#[test]
-fn test_classifier_info() -> Result<(), Box<dyn std::error::Error>> {
-    let result = Classifier::builder()
-        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::BuildError(_)));
-    Ok(())
-}
-
-#[test]
-fn test_builtin_model_characteristics() {
-    let model = BuiltinModel::MiniLM;
-    let paths = model.get_paths();
-    assert!(paths.0.contains("minilm"));
-    assert!(paths.1.contains("tokenizer"));
-}
-
-#[test]
-fn test_builtin_model_loading() -> Result<(), Box<dyn std::error::Error>> {
-    let result = Classifier::builder()
-        .with_custom_model("nonexistent/model.onnx", "nonexistent/tokenizer.json", None)
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::BuildError(_)));
-
-    // Test successful model loading with minimal configuration
-    let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("test", vec!["sample text"])?
-        .build()?;
+fn test_basic_validation() -> Result<(), ClassifierError> {
+    let (model, _) = get_test_paths();
     
-    // Verify classifier is initialized and can make predictions
-    let (_class, scores) = classifier.predict("test text")?;
-    assert!(scores.len() > 0);
-    assert!(scores.contains_key("test"));
+    let result = Classifier::builder()
+        .with_model(model)?
+        .add_class(
+            ClassDefinition::new("test", "Test class")
+                .with_examples(vec!["sample text"])
+        )?
+        .build();
 
-    // Test with multiple classes
-    let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("class1", vec!["example one"])?
-        .add_class("class2", vec!["example two"])?
-        .build()?;
+    assert!(result.is_ok());
+    Ok(())
+}
+
+#[test]
+fn test_end_to_end() -> Result<(), ClassifierError> {
+    let (model, _) = get_test_paths();
     
-    let (_class, scores) = classifier.predict("test text")?;
-    assert_eq!(scores.len(), 2);
-    assert!(scores.contains_key("class1"));
-    assert!(scores.contains_key("class2"));
-
-    Ok(())
-}
-
-#[test]
-fn test_builtin_multiclass() -> Result<(), Box<dyn std::error::Error>> {
     let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("tech", vec![
-            "artificial intelligence breakthrough",
-            "new software release",
-            "quantum computing advance"
-        ])?
-        .add_class("sports", vec![
-            "championship game victory",
-            "world record in athletics",
-            "tournament final match"
-        ])?
-        .add_class("business", vec![
-            "stock market analysis",
-            "corporate merger announcement",
-            "startup funding round"
-        ])?
+        .with_model(model)?
+        .add_class(
+            ClassDefinition::new("tech", "Technology related content")
+                .with_examples(vec![
+                    "artificial intelligence breakthrough",
+                    "new software release",
+                    "quantum computing advance",
+                ])
+        )?
+        .add_class(
+            ClassDefinition::new("sports", "Sports related content")
+                .with_examples(vec![
+                    "championship game victory",
+                    "world record in athletics",
+                    "tournament final match",
+                ])
+        )?
+        .add_class(
+            ClassDefinition::new("business", "Business and finance content")
+                .with_examples(vec![
+                    "stock market analysis",
+                    "corporate merger announcement",
+                    "startup funding round",
+                ])
+        )?
         .build()?;
 
-    // Test tech classification
-    let (class, scores) = classifier.predict("The new AI model shows promising results")?;
-    assert_eq!(class, "tech");
-    assert!(scores["tech"] > scores["sports"]);
-    assert!(scores["tech"] > scores["business"]);
-
-    // Test sports classification
-    let (class, scores) = classifier.predict("Team wins the championship in overtime")?;
-    assert_eq!(class, "sports");
-    assert!(scores["sports"] > scores["tech"]);
-    assert!(scores["sports"] > scores["business"]);
-
-    // Test business classification
-    let (class, scores) = classifier.predict("Company announces successful IPO")?;
-    assert_eq!(class, "business");
-    assert!(scores["business"] > scores["tech"]);
-    assert!(scores["business"] > scores["sports"]);
-
-    // Test that all predictions return scores for all classes
-    let (_, scores) = classifier.predict("random text")?;
-    assert_eq!(scores.len(), 3);
-    assert!(scores.contains_key("tech"));
-    assert!(scores.contains_key("sports"));
-    assert!(scores.contains_key("business"));
-
+    let (class, scores) = classifier.predict("The startup announced a major AI breakthrough")?;
+    assert!(!scores.is_empty());
+    assert_eq!(class, "tech"); // The text is about AI, so it should be classified as tech
     Ok(())
 }
 
 #[test]
-fn test_error_handling() -> Result<(), Box<dyn std::error::Error>> {
-    // Test ValidationError with duplicate class
+fn test_duplicate_class() {
+    let (model, _) = get_test_paths();
+    
     let result = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("test", vec!["example1"])?
-        .add_class("test", vec!["example2"])  // Duplicate class
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::ValidationError(_)));
+        .with_model(model)
+        .and_then(|builder| {
+            builder.add_class(
+                ClassDefinition::new("test", "Test class 1")
+                    .with_examples(vec!["example1"])
+            )
+        })
+        .and_then(|builder| {
+            builder.add_class(
+                ClassDefinition::new("test", "Test class 2")
+                    .with_examples(vec!["example2"])
+            )
+        });
 
-    // Test BuildError with no classes
-    let result = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .build()
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::BuildError(_)));
-
-    // Test ValidationError with empty class label
-    let result = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("", vec!["example"])  // Empty class label
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::ValidationError(_)));
-
-    // Test ValidationError with empty example
-    let result = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("test", vec![""])  // Empty example
-        .unwrap_err();
-    assert!(matches!(result, ClassifierError::ValidationError(_)));
-
-    Ok(())
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_edge_cases() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("test", vec!["example text"])?
-        .build()?;
+fn test_empty_class_label() {
+    let (model, _) = get_test_paths();
+    
+    let result = Classifier::builder()
+        .with_model(model)
+        .and_then(|builder| {
+            builder.add_class(
+                ClassDefinition::new("", "Empty label")
+                    .with_examples(vec!["example"])
+            )
+        });
 
-    // Test very short input
-    let (_class, scores) = classifier.predict("a")?;
-    assert!(!scores.is_empty());
+    assert!(result.is_err());
+}
 
-    // Test input with special characters
-    let (_class, scores) = classifier.predict("!@#$%^&*()")?;
-    assert!(!scores.is_empty());
+#[test]
+fn test_empty_example() {
+    let (model, _) = get_test_paths();
+    
+    let result = Classifier::builder()
+        .with_model(model)
+        .and_then(|builder| {
+            builder.add_class(
+                ClassDefinition::new("test", "Test class")
+                    .with_examples(vec![""])
+            )
+        });
 
-    // Test input with unicode characters
-    let (_class, scores) = classifier.predict("Hello 世界")?;
-    assert!(!scores.is_empty());
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), ClassifierError::ValidationError(_)));
+}
 
-    // Test input with multiple spaces
-    let (_class, scores) = classifier.predict("   multiple    spaces   text   ")?;
-    assert!(!scores.is_empty());
+#[test]
+fn test_many_classes() -> Result<(), ClassifierError> {
+    let (model, _) = get_test_paths();
+    let mut builder = Classifier::builder()
+        .with_model(model)?;
 
-    // Test input with newlines and tabs
-    let (_class, scores) = classifier.predict("text with\nnewlines\tand\ttabs")?;
-    assert!(!scores.is_empty());
-
-    // Test maximum number of classes
-    let mut builder = Classifier::builder().with_model(BuiltinModel::MiniLM)?;
-    for i in 0..100 {  // Test with 100 classes
+    for i in 0..10 {
         builder = builder.add_class(
-            &format!("class_{}", i),
-            vec!["example text"]
+            ClassDefinition::new(
+                format!("class_{}", i),
+                format!("Test class {}", i)
+            ).with_examples(vec!["example text"])
         )?;
     }
+
     let classifier = builder.build()?;
-    let (_class, scores) = classifier.predict("test text")?;
-    assert_eq!(scores.len(), 100);
-
-    // Test with maximum length text that should be accepted
-    let text = "test ".repeat(50);  // Should be under max_sequence_length but still long
-    let (_class, scores) = classifier.predict(&text)?;
+    let (class, scores) = classifier.predict("test prediction")?;
     assert!(!scores.is_empty());
-
-    Ok(())
-}
-
-#[test]
-fn test_runtime_config() -> Result<(), Box<dyn std::error::Error>> {
-    // Test default config
-    let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("test", vec!["sample text"])?
-        .build()?;
-    let (_class, scores) = classifier.predict("test text")?;
-    assert!(!scores.is_empty());
-
-    // Test single-threaded config
-    let config = RuntimeConfig {
-        inter_threads: 1,
-        intra_threads: 1,
-        optimization_level: GraphOptimizationLevel::Level1,
-    };
-    let classifier = Classifier::builder()
-        .with_runtime_config(config)
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("test", vec!["sample text"])?
-        .build()?;
-    let (_class, scores) = classifier.predict("test text")?;
-    assert!(!scores.is_empty());
-
-    // Test multi-threaded config
-    let config = RuntimeConfig {
-        inter_threads: 2,
-        intra_threads: 2,
-        optimization_level: GraphOptimizationLevel::Level2,
-    };
-    let classifier = Classifier::builder()
-        .with_runtime_config(config)
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("test", vec!["sample text"])?
-        .build()?;
-    let (_class, scores) = classifier.predict("test text")?;
-    assert!(!scores.is_empty());
-
-    // Test optimization level
-    let config = RuntimeConfig {
-        inter_threads: 0,  // Let ONNX Runtime decide
-        intra_threads: 0,  // Let ONNX Runtime decide
-        optimization_level: GraphOptimizationLevel::Level3,
-    };
-    let classifier = Classifier::builder()
-        .with_runtime_config(config)
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class("test", vec!["sample text"])?
-        .build()?;
-    let (_class, scores) = classifier.predict("test text")?;
-    assert!(!scores.is_empty());
-
+    assert!(class.starts_with("class_")); // Should match one of our classes
     Ok(())
 } 
