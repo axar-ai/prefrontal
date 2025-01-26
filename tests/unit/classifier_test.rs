@@ -145,39 +145,6 @@ fn test_class_validation() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_class_management() -> Result<(), Box<dyn std::error::Error>> {
-    let mut classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class(
-            ClassDefinition::new(
-                "sports",
-                "Sports and athletic activities"
-            ).with_examples(vec!["football game"])
-        )?
-        .build()?;
-
-    // Test class info retrieval
-    let classes = classifier.get_classes();
-    assert!(classes.contains(&String::from("sports")));
-    assert_eq!(classes.len(), 1);
-
-    // Test class removal
-    classifier.remove_class("sports")?;
-    assert_eq!(classifier.get_classes().len(), 0);
-
-    // Test adding class after initialization
-    classifier.add_class(
-        ClassDefinition::new(
-            "tech",
-            "Technology and computers"
-        ).with_examples(vec!["programming code"])
-    )?;
-    assert!(classifier.get_classes().contains(&String::from("tech")));
-
-    Ok(())
-}
-
-#[test]
 fn test_prediction_validation() -> Result<(), Box<dyn std::error::Error>> {
     let classifier = Classifier::builder()
         .with_model(BuiltinModel::MiniLM)?

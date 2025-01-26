@@ -134,4 +134,24 @@ fn test_many_classes() -> Result<(), ClassifierError> {
     assert!(!scores.is_empty());
     assert!(class.starts_with("class_")); // Should match one of our classes
     Ok(())
+}
+
+#[test]
+fn test_long_description() {
+    let (model, _) = get_test_paths();
+    
+    // Create a description that's too long (1001 characters)
+    let long_description = "a".repeat(1001);
+    
+    let result = Classifier::builder()
+        .with_model(model)
+        .and_then(|builder| {
+            builder.add_class(
+                ClassDefinition::new("test", long_description)
+                    .with_examples(vec!["example"])
+            )
+        });
+
+    assert!(result.is_err());
+    assert!(matches!(result.unwrap_err(), ClassifierError::ValidationError(_)));
 } 

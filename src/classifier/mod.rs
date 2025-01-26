@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 mod error;
 mod embedding;
@@ -21,8 +22,8 @@ pub struct ClassifierInfo {
     pub num_classes: usize,
     /// Labels of the classes
     pub class_labels: Vec<String>,
-    /// Descriptions of the classes
-    pub class_descriptions: HashMap<String, String>,
+    /// Descriptions of the classes, wrapped in Arc for efficient cloning
+    pub class_descriptions: Arc<HashMap<String, String>>,
     /// Size of the embedding vectors
     pub embedding_size: usize,
 } 

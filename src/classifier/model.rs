@@ -103,7 +103,7 @@ impl Classifier {
             tokenizer_path: self.tokenizer_path.clone(),
             num_classes: self.embedded_prototypes.len(),
             class_labels: self.embedded_prototypes.keys().cloned().collect(),
-            class_descriptions: self.class_descriptions.as_ref().clone(),
+            class_descriptions: Arc::clone(&self.class_descriptions),
             embedding_size: self.model_characteristics.embedding_size,
         }
     }

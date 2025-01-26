@@ -16,14 +16,34 @@ use crate::{BuiltinModel, ModelCharacteristics, runtime::{RuntimeConfig, create_
 pub struct ClassDefinition {
     /// The unique identifier for the class
     pub label: String,
-    /// A detailed description of what this class represents
+    /// A detailed description of what this class represents.
+    /// This helps document the class's purpose and can be used for:
+    /// - Understanding the classifier's capabilities
+    /// - Future extensibility (e.g., zero-shot classification)
+    /// - API documentation
     pub description: String,
-    /// Optional examples of text that belong to this class
+    /// Optional examples of text that belong to this class.
+    /// When provided, these examples are used to compute the class prototype
+    /// for similarity-based classification.
     pub examples: Option<Vec<String>>,
 }
 
 impl ClassDefinition {
     /// Creates a new class definition with required label and description
+    /// 
+    /// # Arguments
+    /// * `label` - A unique identifier for the class
+    /// * `description` - A detailed description of what this class represents
+    /// 
+    /// # Example
+    /// ```
+    /// use text_classifier::ClassDefinition;
+    /// 
+    /// let class = ClassDefinition::new(
+    ///     "tech",
+    ///     "Technology-related content including programming and software"
+    /// );
+    /// ```
     pub fn new(label: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -33,6 +53,22 @@ impl ClassDefinition {
     }
 
     /// Adds examples to the class definition
+    /// 
+    /// # Arguments
+    /// * `examples` - A vector of example texts that belong to this class
+    /// 
+    /// # Example
+    /// ```
+    /// use text_classifier::ClassDefinition;
+    /// 
+    /// let class = ClassDefinition::new(
+    ///     "tech",
+    ///     "Technology-related content"
+    /// ).with_examples(vec![
+    ///     "computer programming",
+    ///     "software development"
+    /// ]);
+    /// ```
     pub fn with_examples(mut self, examples: Vec<impl Into<String>>) -> Self {
         self.examples = Some(examples.into_iter().map(Into::into).collect());
         self
@@ -191,6 +227,7 @@ impl ClassifierBuilder {
 
     /// Validates class data according to the following rules:
     /// - Label must not be empty
+    /// - Description must not be empty and must not exceed 1000 characters
     /// - Must have at least one example
     /// - No example text can be empty
     /// - Each example must be valid UTF-8
@@ -208,11 +245,19 @@ impl ClassifierBuilder {
         description: &str,
         examples: &[impl AsRef<str>]
     ) -> Result<(), ClassifierError> {
+        const MAX_DESCRIPTION_LENGTH: usize = 1000;
+
         if label.is_empty() {
             return Err(ClassifierError::ValidationError("Class label cannot be empty".into()));
         }
         if description.is_empty() {
             return Err(ClassifierError::ValidationError("Class description cannot be empty".into()));
+        }
+        if description.len() > MAX_DESCRIPTION_LENGTH {
+            return Err(ClassifierError::ValidationError(
+                format!("Class description is too long ({} chars, max is {})",
+                    description.len(), MAX_DESCRIPTION_LENGTH)
+            ));
         }
         if examples.is_empty() {
             return Err(ClassifierError::ValidationError(
