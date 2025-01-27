@@ -1,20 +1,20 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use prefrontal::{Classifier, BuiltinModel, ClassDefinition, ModelManager};
-use log::info;
 use tokio::runtime::Runtime;
 
-async fn setup_model() -> Result<(), Box<dyn std::error::Error>> {
+async fn setup_model() -> Result<ModelManager, Box<dyn std::error::Error>> {
     let manager = ModelManager::new_default()?;
     let model = BuiltinModel::MiniLM;
     
     if !manager.is_model_downloaded(model) {
         manager.download_model(model).await?;
     }
-    Ok(())
+    assert!(manager.is_model_downloaded(model));
+    Ok(manager)
 }
 
 async fn setup_classifier() -> Result<Classifier, Box<dyn std::error::Error>> {
-    setup_model().await?;
+    let _manager = setup_model().await?;
 
     let classifier = Classifier::builder()
         .with_model(BuiltinModel::MiniLM)?
@@ -31,52 +31,55 @@ async fn setup_classifier() -> Result<Classifier, Box<dyn std::error::Error>> {
     Ok(classifier)
 }
 
-fn bench_tokenization(c: &mut Criterion) {
-    let classifier = setup_classifier().unwrap();
-    let mut group = c.benchmark_group("Tokenization");
+fn bench_embedding(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+    let classifier = rt.block_on(setup_classifier()).unwrap();
+    let mut group = c.benchmark_group("Embedding");
     
     // Short text
     group.bench_function("short_text", |b| b.iter(|| {
-        classifier.count_tokens(black_box("This is a short text"))
+        classifier.predict(black_box("This is a short text")).unwrap()
     }));
     
     // Medium text
     group.bench_function("medium_text", |b| b.iter(|| {
-        classifier.count_tokens(black_box(
-            "This is a medium length text that should take more time to tokenize \
-             and process due to its increased length and complexity"
-        ))
+        classifier.predict(black_box(
+            "This is a medium length text that should take more time to process \
+             due to its increased length and complexity"
+        )).unwrap()
     }));
     
     // Long text
     group.bench_function("long_text", |b| b.iter(|| {
-        classifier.count_tokens(black_box(
+        classifier.predict(black_box(
             "This is a much longer text that contains multiple sentences and should \
              take significantly more time to process. It includes various words and \
-             punctuation marks, making it a good test case for tokenization performance. \
-             The length of this text should help us understand how the tokenizer scales \
+             punctuation marks, making it a good test case for performance. \
+             The length of this text should help us understand how the model scales \
              with input size."
-        ))
+        )).unwrap()
     }));
     
     group.finish();
 }
 
 fn bench_embedding_generation(c: &mut Criterion) {
-    let classifier = setup_classifier().unwrap();
+    let rt = Runtime::new().unwrap();
+    let classifier = rt.block_on(setup_classifier()).unwrap();
     let mut group = c.benchmark_group("Embedding");
     
     group.sample_size(50)  // Reduce sample size for long running benchmarks
          .measurement_time(std::time::Duration::from_secs(10));  // Increase measurement time
     
     group.bench_function("single_text", |b| b.iter(|| {
-        classifier.predict(black_box("Sample text for embedding benchmark"))
+        classifier.predict(black_box("Sample text for embedding benchmark")).unwrap()
     }));
     
     group.finish();
 }
 
 fn bench_classification(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
     let mut group = c.benchmark_group("Classification");
     
     group.sample_size(50)  // Reduce sample size for long running benchmarks
@@ -84,6 +87,9 @@ fn bench_classification(c: &mut Criterion) {
     
     // Single class classification with timing
     {
+        let manager = rt.block_on(setup_model()).unwrap();
+        assert!(manager.is_model_downloaded(BuiltinModel::MiniLM));
+        
         let classifier = Classifier::builder()
             .with_model(BuiltinModel::MiniLM)
             .unwrap()
@@ -98,12 +104,15 @@ fn bench_classification(c: &mut Criterion) {
             .unwrap();
         
         group.bench_function("single_prediction", |b| b.iter(|| {
-            classifier.predict(black_box("Test text for benchmark"))
+            classifier.predict(black_box("Test text for benchmark")).unwrap()
         }));
     }
     
     // Multiple classes with timing
     {
+        let manager = rt.block_on(setup_model()).unwrap();
+        assert!(manager.is_model_downloaded(BuiltinModel::MiniLM));
+        
         let mut builder = Classifier::builder()
             .with_model(BuiltinModel::MiniLM)
             .unwrap();
@@ -120,7 +129,7 @@ fn bench_classification(c: &mut Criterion) {
         let classifier = builder.build().unwrap();
         
         group.bench_function("prediction_ten_classes", |b| b.iter(|| {
-            classifier.predict(black_box("Test text for benchmark"))
+            classifier.predict(black_box("Test text for benchmark")).unwrap()
         }));
     }
     
@@ -128,6 +137,10 @@ fn bench_classification(c: &mut Criterion) {
 }
 
 fn bench_build_time(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+    let manager = rt.block_on(setup_model()).unwrap();
+    assert!(manager.is_model_downloaded(BuiltinModel::MiniLM));
+    
     let mut group = c.benchmark_group("Build");
     
     group.sample_size(30)  // Further reduce sample size for very long running benchmarks
@@ -155,7 +168,7 @@ fn bench_build_time(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_tokenization,
+    bench_embedding,
     bench_embedding_generation,
     bench_classification,
     bench_build_time
