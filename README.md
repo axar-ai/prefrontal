@@ -6,16 +6,12 @@ A blazing fast text classifier for real-time agent routing, built in Rust. Prefr
 
 To use Prefrontal in your project, you need:
 
-1. **ONNX Runtime** (v1.16.3 or later)
-
-   - Linux: `sudo apt-get install libonnxruntime`
-   - macOS: `brew install onnxruntime`
-   - Windows: Download from [ONNX Runtime Releases](https://github.com/microsoft/onnxruntime/releases)
-
-2. **System Dependencies**
+1. **Build Dependencies**
    - Linux: `sudo apt-get install cmake pkg-config libssl-dev`
    - macOS: `brew install cmake pkg-config openssl`
    - Windows: Install CMake and OpenSSL
+
+Note: ONNX Runtime v2.0.0-rc.9 is automatically downloaded and managed by the crate.
 
 ## Features
 
@@ -194,20 +190,20 @@ Benchmarks run on MacBook Pro M1, 16GB RAM:
 
 ### Text Processing
 
-| Operation    | Text Length         | Time     |
-| ------------ | ------------------- | -------- |
-| Tokenization | Short (< 50 chars)  | ~22.5 µs |
-| Tokenization | Medium (~100 chars) | ~51.2 µs |
-| Tokenization | Long (~200 chars)   | ~105 µs  |
+| Operation    | Text Length         | Time      |
+| ------------ | ------------------- | --------- |
+| Tokenization | Short (< 50 chars)  | ~23.2 µs  |
+| Tokenization | Medium (~100 chars) | ~51.5 µs  |
+| Tokenization | Long (~200 chars)   | ~107.0 µs |
 
 ### Classification
 
 | Operation      | Scenario     | Time     |
 | -------------- | ------------ | -------- |
-| Embedding      | Single text  | ~11.5 ms |
+| Embedding      | Single text  | ~11.1 ms |
 | Classification | Single class | ~11.1 ms |
-| Classification | 10 classes   | ~11.2 ms |
-| Build          | 10 classes   | ~478 ms  |
+| Classification | 10 classes   | ~11.1 ms |
+| Build          | 10 classes   | ~450 ms  |
 
 Key Performance Characteristics:
 
