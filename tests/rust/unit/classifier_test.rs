@@ -1,4 +1,4 @@
-use prefrontal::{Classifier, BuiltinModel, ClassDefinition, ClassifierError};
+use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
 use std::sync::Arc;
 use std::thread;
 
