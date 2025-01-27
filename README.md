@@ -20,7 +20,7 @@ Note: ONNX Runtime v2.0.0-rc.9 is automatically downloaded and managed by the cr
 - 🚀 Easy-to-use builder pattern interface
 - 🔧 Support for both built-in and custom ONNX models
 - 📊 Multiple class classification with confidence scores
-- 🛠️ Built-in model management (MiniLM included)
+- 🛠️ Automatic model management and downloading
 - 🧪 Thread-safe for high-concurrency environments
 - 📝 Comprehensive logging and error handling
 
@@ -36,12 +36,23 @@ prefrontal = "0.1.0"
 ## Quick Start
 
 ```rust
-use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
+use prefrontal::{Classifier, BuiltinModel, ClassDefinition, ModelManager};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Download the model if not already present
+    let model = BuiltinModel::MiniLM;
+    let model_info = model.get_model_info();
+    let manager = ModelManager::new_default()?;
+
+    if !manager.is_model_downloaded(&model_info.name) {
+        println!("Downloading model...");
+        manager.download_model(&model_info).await?;
+    }
+
     // Initialize the classifier with built-in MiniLM model
     let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
+        .with_model(model)?
         .add_class(
             ClassDefinition::new(
                 "technical_support",
@@ -69,12 +80,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Route to: {}", department);
     println!("Confidence scores: {:?}", scores);
 
-    // Get classifier information
-    let info = classifier.info();
-    println!("Number of departments: {}", info.num_classes);
-    println!("Department labels: {:?}", info.class_labels);
-    println!("Department descriptions: {:?}", info.class_descriptions);
-
     Ok(())
 }
 ```
@@ -83,10 +88,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### MiniLM
 
-- Embedding size: 384
-- Max sequence length: 256
-- Model size: ~85MB
-- Good balance of speed and accuracy
+The MiniLM model is a small and efficient model optimized for text classification:
+
+- **Embedding Size**: 384 dimensions
+
+  - Determines the size of vectors used for similarity calculations
+  - Balanced for capturing semantic relationships while being memory efficient
+
+- **Max Sequence Length**: 256 tokens
+
+  - Each token roughly corresponds to 4-5 characters
+  - Longer inputs are automatically truncated
+
+- **Model Size**: ~85MB
+  - Compact size for efficient deployment
+  - Good balance of speed and accuracy
+
+Models are automatically downloaded from HuggingFace when needed:
+
+- Model: `https://huggingface.co/axar-ai/minilm/resolve/main/model.onnx`
+- Tokenizer: `https://huggingface.co/axar-ai/minilm/resolve/main/tokenizer.json`
+
+## Runtime Configuration
+
+You can fine-tune the ONNX runtime configuration for optimal performance:
+
+```rust
+use prefrontal::{Classifier, RuntimeConfig};
+
+let config = RuntimeConfig {
+    // Number of threads for parallel model execution
+    // 0 = let ONNX Runtime decide (recommended)
+    inter_threads: 0,
+
+    // Number of threads for parallel computation within nodes
+    // 0 = let ONNX Runtime decide (recommended)
+    intra_threads: 0,
+
+    // Graph optimization level (Level3 recommended for production)
+    optimization_level: GraphOptimizationLevel::Level3,
+};
+
+let classifier = Classifier::builder()
+    .with_runtime_config(config)
+    // ... rest of configuration ...
+    .build()?;
+```
 
 ## Custom Models
 
@@ -108,9 +155,59 @@ let classifier = Classifier::builder()
     .build()?;
 ```
 
+## Model Management
+
+The library includes a model management system that handles downloading and verifying models:
+
+```rust
+use prefrontal::{ModelManager, BuiltinModel};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let manager = ModelManager::new_default()?;
+    let model = BuiltinModel::MiniLM;
+    let model_info = model.get_model_info();
+
+    // Check if model is downloaded
+    if !manager.is_model_downloaded(&model_info.name) {
+        println!("Downloading model...");
+        manager.download_model(&model_info).await?;
+    }
+
+    // Verify model integrity
+    if !manager.verify_model(&model_info)? {
+        println!("Model verification failed, redownloading...");
+        manager.download_model(&model_info).await?;
+    }
+
+    Ok(())
+}
+```
+
+## Model Cache Location
+
+Models are stored in one of the following locations, in order of precedence:
+
+1. The directory specified by the `PREFRONTAL_CACHE` environment variable, if set
+2. The platform-specific cache directory:
+   - Linux: `~/.cache/prefrontal/`
+   - macOS: `~/Library/Caches/prefrontal/`
+   - Windows: `%LOCALAPPDATA%\prefrontal\Cache\`
+3. A `.prefrontal` directory in the current working directory
+
+You can override the default location by:
+
+```bash
+# Set a custom cache directory
+export PREFRONTAL_CACHE=/path/to/your/cache
+
+# Or when running your application
+PREFRONTAL_CACHE=/path/to/your/cache cargo run
+```
+
 ## Class Definitions
 
-Departments or routing destinations are defined with labels, descriptions, and optional examples:
+Classes (departments or routing destinations) are defined with labels, descriptions, and optional examples:
 
 ```rust
 // With examples for few-shot classification
@@ -131,11 +228,9 @@ let class = ClassDefinition::new(
 // Get routing configuration
 let info = classifier.info();
 println!("Number of departments: {}", info.num_classes);
-println!("Department labels: {:?}", info.class_labels);
-println!("Department descriptions: {:?}", info.class_descriptions);
 ```
 
-Each routing destination requires:
+Each class requires:
 
 - A unique label that identifies the group
 - A description that explains the category
@@ -177,11 +272,18 @@ use std::sync::Arc;
 use std::thread;
 
 let classifier = Arc::new(classifier);
-let classifier_clone = Arc::clone(&classifier);
 
-thread::spawn(move || {
-    classifier_clone.predict("test text").unwrap();
-});
+let mut handles = vec![];
+for _ in 0..3 {
+    let classifier = Arc::clone(&classifier);
+    handles.push(thread::spawn(move || {
+        classifier.predict("test text").unwrap();
+    }));
+}
+
+for handle in handles {
+    handle.join().unwrap();
+}
 ```
 
 ## Performance
@@ -228,22 +330,18 @@ cargo bench
 
 ### Developer Prerequisites
 
-If you want to contribute to Prefrontal or build it from source, you'll need additional tools:
+If you want to contribute to Prefrontal or build it from source, you'll need:
 
-1. **Git LFS** (required for working with model files)
-   - Linux: `sudo apt-get install git-lfs`
-   - macOS: `brew install git-lfs`
-   - Windows: Download from [Git LFS](https://git-lfs.com)
+1. **Build Dependencies** (as listed in System Requirements)
+2. **Rust Toolchain** (latest stable version)
 
 ### Development Setup
 
-1. Clone the repository with Git LFS:
+1. Clone the repository:
 
 ```bash
-git lfs install
 git clone https://github.com/yourusername/prefrontal.git
 cd prefrontal
-git lfs pull
 ```
 
 2. Install dependencies as described in System Requirements
@@ -254,14 +352,6 @@ git lfs pull
 cargo build
 cargo test
 ```
-
-### Model Files
-
-The repository includes pre-trained models in the `models/` directory:
-
-- Only `.onnx` and `tokenizer.json` files are tracked
-- Large model files are handled by Git LFS
-- You can add custom models in any subdirectory under `models/`
 
 ### Running Tests
 

@@ -81,11 +81,22 @@ pub enum BuiltinModel {
 /// Characteristics of a model, including its capabilities and resource requirements
 #[derive(Debug, Clone)]
 pub struct ModelCharacteristics {
-    /// Size of the embedding vectors produced by the model
+    /// The dimensionality of embedding vectors produced by the model
+    /// 
+    /// This determines the size of the vectors used for similarity calculations.
+    /// Higher dimensions can capture more nuanced relationships but use more memory.
     pub embedding_size: usize,
-    /// Maximum sequence length the model can handle
+
+    /// Maximum number of tokens the model can process in a single input
+    /// 
+    /// Longer inputs will be truncated to this length. Each token roughly
+    /// corresponds to 4-5 characters of text.
     pub max_sequence_length: usize,
-    /// Approximate size of the model in memory
+
+    /// Approximate size of the model in megabytes when loaded into memory
+    /// 
+    /// This can help in capacity planning and determining if the model will
+    /// fit in available system memory.
     pub model_size_mb: usize,
 }
 

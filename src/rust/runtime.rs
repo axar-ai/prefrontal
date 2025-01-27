@@ -7,8 +7,22 @@ static INIT: Once = Once::new();
 
 #[derive(Debug)]
 pub struct RuntimeConfig {
+    /// Number of threads to use for parallel model execution (0 = let ONNX Runtime decide)
+    /// 
+    /// This controls inter-op parallelism, which is parallelism between independent nodes in the model graph.
+    /// Setting this to 0 allows ONNX Runtime to automatically choose based on system resources.
     pub inter_threads: usize,
+
+    /// Number of threads to use for parallel computation within nodes (0 = let ONNX Runtime decide)
+    /// 
+    /// This controls intra-op parallelism, which is parallelism within individual operations like matrix multiplication.
+    /// Setting this to 0 allows ONNX Runtime to automatically choose based on system resources.
     pub intra_threads: usize,
+
+    /// The level of graph optimization to apply
+    /// 
+    /// Higher levels perform more aggressive optimizations but may take longer to compile.
+    /// Level3 (maximum) is recommended for production use.
     pub optimization_level: GraphOptimizationLevel,
 }
 

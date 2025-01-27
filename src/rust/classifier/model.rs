@@ -104,7 +104,33 @@ impl Classifier {
         }
     }
 
-    /// Makes a prediction for the given text
+    /// Predicts the class of the input text and returns class scores.
+    /// 
+    /// # Arguments
+    /// * `text` - The text to classify
+    /// 
+    /// # Returns
+    /// A tuple containing:
+    /// * The predicted class label (String)
+    /// * A HashMap of class labels to their similarity scores (0.0 to 1.0)
+    /// 
+    /// # Example
+    /// ```rust
+    /// # use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let classifier = Classifier::builder()
+    /// #     .with_model(BuiltinModel::MiniLM)?
+    /// #     .add_class(ClassDefinition::new("positive", "Positive")
+    /// #         .with_examples(vec!["great"]))?
+    /// #     .build()?;
+    /// let (label, scores) = classifier.predict("This is great!")?;
+    /// println!("Predicted class: {}", label);
+    /// for (class, score) in scores {
+    ///     println!("{}: {:.2}", class, score);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn predict(&self, text: &str) -> Result<(String, HashMap<String, f32>), ClassifierError> {
         if text.is_empty() {
             return Err(ClassifierError::ValidationError("Input text cannot be empty".into()));
