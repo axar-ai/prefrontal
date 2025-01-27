@@ -1,23 +1,38 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
+use prefrontal::{Classifier, BuiltinModel, ClassDefinition, ModelManager};
+use log::info;
+use tokio::runtime::Runtime;
 
-fn setup_benchmark_classifier() -> Classifier {
-    Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)
-        .unwrap()
+async fn setup_model() -> Result<(), Box<dyn std::error::Error>> {
+    let manager = ModelManager::new_default()?;
+    let model = BuiltinModel::MiniLM;
+    
+    if !manager.is_model_downloaded(model) {
+        manager.download_model(model).await?;
+    }
+    Ok(())
+}
+
+async fn setup_classifier() -> Result<Classifier, Box<dyn std::error::Error>> {
+    setup_model().await?;
+
+    let classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
         .add_class(
-            ClassDefinition::new(
-                "default",
-                "Default class for benchmarking"
-            ).with_examples(vec!["sample text"])
-        )
-        .unwrap()
-        .build()
-        .unwrap()
+            ClassDefinition::new("positive", "Positive sentiment")
+                .with_examples(vec!["great", "awesome", "excellent"])
+        )?
+        .add_class(
+            ClassDefinition::new("negative", "Negative sentiment")
+                .with_examples(vec!["terrible", "awful", "bad"])
+        )?
+        .build()?;
+
+    Ok(classifier)
 }
 
 fn bench_tokenization(c: &mut Criterion) {
-    let classifier = setup_benchmark_classifier();
+    let classifier = setup_classifier().unwrap();
     let mut group = c.benchmark_group("Tokenization");
     
     // Short text
@@ -48,8 +63,11 @@ fn bench_tokenization(c: &mut Criterion) {
 }
 
 fn bench_embedding_generation(c: &mut Criterion) {
-    let classifier = setup_benchmark_classifier();
+    let classifier = setup_classifier().unwrap();
     let mut group = c.benchmark_group("Embedding");
+    
+    group.sample_size(50)  // Reduce sample size for long running benchmarks
+         .measurement_time(std::time::Duration::from_secs(10));  // Increase measurement time
     
     group.bench_function("single_text", |b| b.iter(|| {
         classifier.predict(black_box("Sample text for embedding benchmark"))
@@ -60,6 +78,9 @@ fn bench_embedding_generation(c: &mut Criterion) {
 
 fn bench_classification(c: &mut Criterion) {
     let mut group = c.benchmark_group("Classification");
+    
+    group.sample_size(50)  // Reduce sample size for long running benchmarks
+         .measurement_time(std::time::Duration::from_secs(10));  // Increase measurement time
     
     // Single class classification with timing
     {
@@ -108,6 +129,9 @@ fn bench_classification(c: &mut Criterion) {
 
 fn bench_build_time(c: &mut Criterion) {
     let mut group = c.benchmark_group("Build");
+    
+    group.sample_size(30)  // Further reduce sample size for very long running benchmarks
+         .measurement_time(std::time::Duration::from_secs(15));  // Increase measurement time
     
     group.bench_function("build_ten_classes", |b| b.iter(|| {
         let mut builder = Classifier::builder()

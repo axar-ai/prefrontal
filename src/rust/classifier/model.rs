@@ -1,9 +1,10 @@
 use std::sync::Arc;
 use std::collections::HashMap;
-use anyhow::Result;
 use ort::session::Session;
-use ndarray::Array1;
 use tokenizers::Tokenizer;
+use ndarray::Array1;
+use anyhow::Result;
+
 use super::error::ClassifierError;
 use super::embedding::TextEmbedding;
 use crate::ModelCharacteristics;
@@ -160,15 +161,20 @@ impl Classifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use crate::{ModelManager, BuiltinModel, ClassDefinition};
 
     async fn setup_test_classifier() -> Result<Classifier, Box<dyn std::error::Error>> {
         let manager = ModelManager::new_default()?;
-        let model_info = BuiltinModel::MiniLM.get_model_info();
-        manager.ensure_model_downloaded(&model_info).await?;
+        let model = BuiltinModel::MiniLM;
+        
+        if !manager.is_model_downloaded(model) {
+            manager.download_model(model).await?;
+        }
+        assert!(manager.is_model_downloaded(model));
 
         let classifier = Classifier::builder()
-            .with_model(BuiltinModel::MiniLM)?
+            .with_model(model)?
             .add_class(
                 ClassDefinition::new("test", "Test class")
                     .with_examples(vec!["example text"])
@@ -184,6 +190,119 @@ mod tests {
         let info = classifier.info();
         assert_eq!(info.num_classes, 1);
         assert!(info.class_descriptions.contains_key("test"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_model_loading() -> Result<(), Box<dyn std::error::Error>> {
+        let manager = ModelManager::new_default()?;
+        let model = BuiltinModel::MiniLM;
+        
+        if !manager.is_model_downloaded(model) {
+            manager.download_model(model).await?;
+        }
+        assert!(manager.is_model_downloaded(model));
+
+        let classifier = Classifier::builder()
+            .with_model(model)?
+            .add_class(
+                ClassDefinition::new("test", "Test class")
+                    .with_examples(vec!["test example"])
+            )?
+            .build()?;
+
+        assert!(classifier.predict("test input").is_ok());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_model_verification() -> Result<(), Box<dyn std::error::Error>> {
+        let manager = ModelManager::new("/tmp/test-prefrontal/models").unwrap();
+        let model = BuiltinModel::MiniLM;
+
+        // Clean up any existing files
+        let model_path = manager.get_model_path(model);
+        let tokenizer_path = manager.get_tokenizer_path(model);
+        if model_path.exists() {
+            fs::remove_file(&model_path)?;
+        }
+        if tokenizer_path.exists() {
+            fs::remove_file(&tokenizer_path)?;
+        }
+
+        // Test verification of non-existent model
+        assert!(!manager.verify_model(model)?);
+
+        // Download and verify
+        manager.download_model(model).await?;
+        assert!(manager.verify_model(model)?);
+
+        // Corrupt file and verify
+        fs::write(&model_path, "corrupted data")?;
+        assert!(!manager.verify_model(model)?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_model_download() -> Result<(), Box<dyn std::error::Error>> {
+        let manager = ModelManager::new_default()?;
+        let model = BuiltinModel::MiniLM;
+
+        // Ensure model is downloaded
+        if !manager.is_model_downloaded(model) {
+            manager.download_model(model).await?;
+        }
+
+        // Test paths
+        let model_path = manager.get_model_path(model);
+        let tokenizer_path = manager.get_tokenizer_path(model);
+        assert!(model_path.exists());
+        assert!(tokenizer_path.exists());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_model_setup() -> Result<(), Box<dyn std::error::Error>> {
+        let manager = ModelManager::new_default()?;
+        let model = BuiltinModel::MiniLM;
+
+        // Ensure model is downloaded
+        if !manager.is_model_downloaded(model) {
+            manager.download_model(model).await?;
+        }
+        assert!(manager.is_model_downloaded(model));
+
+        // Test model setup
+        let classifier = Classifier::builder()
+            .with_model(model)?
+            .add_class(
+                ClassDefinition::new("test", "Test class")
+                    .with_examples(vec!["test example"])
+            )?
+            .build()?;
+
+        assert!(classifier.predict("test input").is_ok());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_model_characteristics() -> Result<(), Box<dyn std::error::Error>> {
+        let manager = ModelManager::new_default()?;
+        let model = BuiltinModel::MiniLM;
+
+        // Ensure model is downloaded
+        if !manager.is_model_downloaded(model) {
+            manager.download_model(model).await?;
+        }
+
+        // Test model characteristics
+        let characteristics = model.characteristics();
+        assert_eq!(characteristics.embedding_size, 384);
+        assert_eq!(characteristics.max_sequence_length, 256);
+        assert_eq!(characteristics.model_size_mb, 85);
+
         Ok(())
     }
 } 

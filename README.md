@@ -41,13 +41,12 @@ use prefrontal::{Classifier, BuiltinModel, ClassDefinition, ModelManager};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Download the model if not already present
-    let model = BuiltinModel::MiniLM;
-    let model_info = model.get_model_info();
     let manager = ModelManager::new_default()?;
+    let model = BuiltinModel::MiniLM;
 
-    if !manager.is_model_downloaded(&model_info.name) {
+    if !manager.is_model_downloaded(model) {
         println!("Downloading model...");
-        manager.download_model(&model_info).await?;
+        manager.download_model(model).await?;
     }
 
     // Initialize the classifier with built-in MiniLM model
@@ -166,18 +165,17 @@ use prefrontal::{ModelManager, BuiltinModel};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manager = ModelManager::new_default()?;
     let model = BuiltinModel::MiniLM;
-    let model_info = model.get_model_info();
 
     // Check if model is downloaded
-    if !manager.is_model_downloaded(&model_info.name) {
+    if !manager.is_model_downloaded(model) {
         println!("Downloading model...");
-        manager.download_model(&model_info).await?;
+        manager.download_model(model).await?;
     }
 
     // Verify model integrity
-    if !manager.verify_model(&model_info)? {
+    if !manager.verify_model(model)? {
         println!("Model verification failed, redownloading...");
-        manager.download_model(&model_info).await?;
+        manager.download_model(model).await?;
     }
 
     Ok(())

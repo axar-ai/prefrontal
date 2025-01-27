@@ -125,24 +125,21 @@ impl ClassifierBuilder {
             return Err(ClassifierError::BuildError("Model and tokenizer paths already set".to_string()));
         }
 
-        // Get model info
-        let model_info = model.get_model_info();
-        
         // Initialize model manager with default location
         let manager = ModelManager::new_default()
             .map_err(|e| ClassifierError::BuildError(format!("Failed to create model manager: {}", e)))?;
 
         // Check if model is downloaded
-        if !manager.is_model_downloaded(&model_info.name) {
+        if !manager.is_model_downloaded(model) {
             return Err(ClassifierError::BuildError(format!(
-                "Model '{}' is not downloaded. Please download it first using ModelManager::download_model()",
-                model_info.name
+                "Model '{:?}' is not downloaded. Please download it first using ModelManager::download_model()",
+                model
             )));
         }
 
         // Get paths
-        let model_path = manager.get_model_path(&model_info.name);
-        let tokenizer_path = manager.get_tokenizer_path(&model_info.name);
+        let model_path = manager.get_model_path(model);
+        let tokenizer_path = manager.get_tokenizer_path(model);
 
         // Load tokenizer
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -401,18 +398,23 @@ mod tests {
     use super::*;
     use crate::BuiltinModel;
 
-    async fn setup_model() -> Result<BuiltinModel, Box<dyn std::error::Error>> {
+    async fn setup_model() -> Result<ModelManager, Box<dyn std::error::Error>> {
         let manager = ModelManager::new_default()?;
-        let model_info = BuiltinModel::MiniLM.get_model_info();
-        manager.ensure_model_downloaded(&model_info).await?;
-        Ok(BuiltinModel::MiniLM)
+        let model = BuiltinModel::MiniLM;
+        
+        if !manager.is_model_downloaded(model) {
+            manager.download_model(model).await?;
+        }
+        assert!(manager.is_model_downloaded(model));
+        Ok(manager)
     }
 
     #[tokio::test]
     async fn test_empty_class_handling() -> Result<(), Box<dyn std::error::Error>> {
-        let model = setup_model().await?;
+        let manager = setup_model().await?;
+        assert!(manager.is_model_downloaded(BuiltinModel::MiniLM));
         let result = Classifier::builder()
-            .with_model(model)?
+            .with_model(BuiltinModel::MiniLM)?
             .add_class(
                 ClassDefinition::new("empty", "Empty class")
                     .with_examples(vec![""])
@@ -423,23 +425,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_class_validation() -> Result<(), Box<dyn std::error::Error>> {
-        let model = setup_model().await?;
+        let _manager = setup_model().await?;
 
         // Test invalid class label
         assert!(ClassifierBuilder::new()
-            .with_model(model)?
+            .with_model(BuiltinModel::MiniLM)?
             .add_class(ClassDefinition::new("", "Empty label"))
             .is_err());
 
         // Test invalid description
         assert!(ClassifierBuilder::new()
-            .with_model(model)?
+            .with_model(BuiltinModel::MiniLM)?
             .add_class(ClassDefinition::new("label", ""))
             .is_err());
 
         // Test invalid examples
         assert!(ClassifierBuilder::new()
-            .with_model(model)?
+            .with_model(BuiltinModel::MiniLM)?
             .add_class(
                 ClassDefinition::new("label", "Test class")
                     .with_examples(vec![""])

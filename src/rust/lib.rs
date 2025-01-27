@@ -63,7 +63,8 @@ pub mod model_manager;
 
 pub use classifier::{Classifier, ClassifierBuilder, ClassifierError, ClassifierInfo, ClassDefinition};
 pub use runtime::{RuntimeConfig, create_session_builder};
-pub use model_manager::{ModelManager, ModelInfo, ModelError};
+pub use model_manager::{ModelManager, ModelError};
+use model_manager::ModelInfo;
 
 /// Built-in models that can be used with the classifier
 #[derive(Debug, Clone, Copy)]

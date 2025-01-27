@@ -2,6 +2,9 @@ use prefrontal::{Classifier, BuiltinModel, ClassDefinition, ModelManager};
 use std::sync::Arc;
 use std::thread;
 
+mod model_manager_test;
+use model_manager_test::ensure_model_exists;
+
 fn generate_long_text(entries: usize) -> String {
     let mut text = String::new();
     for i in 0..entries {
@@ -13,47 +16,49 @@ fn generate_long_text(entries: usize) -> String {
     text
 }
 
-async fn setup_test_classifier() -> Result<Classifier, Box<dyn std::error::Error>> {
+async fn setup_model() -> Result<(), Box<dyn std::error::Error>> {
     let manager = ModelManager::new_default()?;
-    let model_info = BuiltinModel::MiniLM.get_model_info();
-    manager.ensure_model_downloaded(&model_info).await?;
-    println!("Model download completed");
-    
+    let model = BuiltinModel::MiniLM;
+    ensure_model_exists(&manager, model).await?;
+    Ok(())
+}
+
+async fn setup_classifier() -> Result<Classifier, Box<dyn std::error::Error>> {
+    setup_model().await?;
+
     let classifier = Classifier::builder()
         .with_model(BuiltinModel::MiniLM)?
         .add_class(
-            ClassDefinition::new("positive", "Content with positive sentiment")
+            ClassDefinition::new("positive", "Positive sentiment")
                 .with_examples(vec![
-                    "This is amazing and wonderful",
-                    "I love this product, it's fantastic",
-                    "Great experience, highly recommend",
-                    "Excellent service and quality",
-                    "Perfect solution to my problem"
+                    "great service and friendly staff",
+                    "awesome experience, highly recommend",
+                    "excellent quality and fast delivery",
+                    "I really enjoyed this product",
+                    "the customer support was very helpful",
+                    "fantastic movie with amazing performances"
                 ])
         )?
         .add_class(
-            ClassDefinition::new("negative", "Content with negative sentiment")
+            ClassDefinition::new("negative", "Negative sentiment")
                 .with_examples(vec![
-                    "This is terrible and disappointing",
-                    "I hate this product, it's awful",
-                    "Bad experience, would not recommend",
-                    "Poor service and quality",
-                    "Complete waste of time and money"
+                    "terrible service and rude staff",
+                    "awful experience, would not recommend",
+                    "bad quality and slow delivery",
+                    "I really disliked this product",
+                    "the customer support was unhelpful",
+                    "disappointing movie with poor performances"
                 ])
         )?
         .build()?;
-    
-    println!("Classifier setup complete");
-    let info = classifier.info();
-    println!("Classifier info: {} classes, embedding_size={}", info.num_classes, info.embedding_size);
-    
+
     Ok(classifier)
 }
 
 #[tokio::test]
 async fn test_basic_classification() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
-    let (label, scores) = classifier.predict("This is a great movie!")?;
+    let classifier = setup_classifier().await?;
+    let (label, scores) = classifier.predict("This is great!")?;
     assert_eq!(label, "positive");
     assert!(scores["positive"] > scores["negative"]);
     Ok(())
@@ -61,7 +66,7 @@ async fn test_basic_classification() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test]
 async fn test_thread_safety() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = Arc::new(setup_test_classifier().await?);
+    let classifier = Arc::new(setup_classifier().await?);
     let mut handles = vec![];
 
     for _ in 0..3 {
@@ -74,13 +79,12 @@ async fn test_thread_safety() -> Result<(), Box<dyn std::error::Error>> {
     for handle in handles {
         handle.join().unwrap();
     }
-
     Ok(())
 }
 
 #[tokio::test]
 async fn test_empty_text() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = setup_classifier().await?;
     let result = classifier.predict("");
     assert!(result.is_err());
     Ok(())
@@ -88,7 +92,7 @@ async fn test_empty_text() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test]
 async fn test_long_text() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = setup_classifier().await?;
     let long_text = generate_long_text(500);  // 500 entries
     println!("\nTesting long text with {} characters", long_text.len());
     
@@ -102,7 +106,7 @@ async fn test_long_text() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test]
 async fn test_end_to_end_classification() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = setup_classifier().await?;
     let text = "I really enjoyed watching this movie, it was fantastic!";
     println!("\nTesting end-to-end classification with text: {}", text);
     let (class, scores) = classifier.predict(text)?;
@@ -115,7 +119,7 @@ async fn test_end_to_end_classification() -> Result<(), Box<dyn std::error::Erro
 
 #[tokio::test]
 async fn test_unknown_class_prediction() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = setup_classifier().await?;
     let text = "The product arrived on time and works perfectly";
     println!("\nTesting unknown class prediction with text: {}", text);
     let (class, scores) = classifier.predict(text)?;
@@ -127,7 +131,7 @@ async fn test_unknown_class_prediction() -> Result<(), Box<dyn std::error::Error
 
 #[tokio::test]
 async fn test_token_length_handling() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = setup_classifier().await?;
     let extremely_long_text = generate_long_text(1000);  // 1000 entries
     
     println!("\nTesting token length handling with {} characters", extremely_long_text.len());
@@ -142,7 +146,7 @@ async fn test_token_length_handling() -> Result<(), Box<dyn std::error::Error>> 
 
 #[tokio::test]
 async fn test_prediction_validation() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = setup_classifier().await?;
     
     println!("\nTesting empty input");
     let result = classifier.predict("");
@@ -162,7 +166,7 @@ async fn test_prediction_validation() -> Result<(), Box<dyn std::error::Error>> 
 
 #[tokio::test]
 async fn test_zero_shot_classification() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = setup_classifier().await?;
     let text = "The customer service was excellent and they resolved my issue quickly";
     println!("\nTesting zero-shot classification with text: {}", text);
     let (class, scores) = classifier.predict(text)?;
@@ -174,10 +178,9 @@ async fn test_zero_shot_classification() -> Result<(), Box<dyn std::error::Error
 
 #[tokio::test]
 async fn test_classifier_thread_safety() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = Arc::new(setup_classifier().await?);
     
     // Test that classifier can be sent to another thread
-    let classifier = Arc::new(classifier);
     let classifier_clone = Arc::clone(&classifier);
     
     let handle = thread::spawn(move || {
@@ -191,7 +194,7 @@ async fn test_classifier_thread_safety() -> Result<(), Box<dyn std::error::Error
 
 #[tokio::test]
 async fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = setup_classifier().await?;
 
     let (class, scores) = classifier.predict("javascript programming")?;
     assert_eq!(class, "positive");
@@ -201,7 +204,7 @@ async fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test]
 async fn test_semantic_similarity() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = setup_test_classifier().await?;
+    let classifier = setup_classifier().await?;
 
     let (class, scores) = classifier.predict("chess tournament")?;
     assert_eq!(class, "positive");  // Should classify as positive due to semantic similarity
