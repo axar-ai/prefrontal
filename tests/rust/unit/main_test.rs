@@ -1,18 +1,25 @@
-use prefrontal::Classifier;
+use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
 
 fn setup_classifier() -> Classifier {
-    Classifier::new(
-        "models/onnx-minilm/model.onnx",
-        "models/onnx-minilm/tokenizer.json"
-    )
+    Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)
+        .unwrap()
+        .add_class(
+            ClassDefinition::new(
+                "sports",
+                "Sports and athletic activities"
+            ).with_examples(vec!["football game", "basketball match"])
+        )
+        .unwrap()
+        .build()
+        .expect("Failed to create classifier")
 }
 
 #[test]
-fn test_demo_with_different_input() {
-    let mut classifier = setup_classifier();
-    classifier.add_class("sports", vec!["football game", "basketball match"]);
-    classifier.build().expect("Build should succeed");
-    
-    let (class, _) = classifier.predict("chess tournament");
-    assert_eq!(class, "sports");  // Should still classify as sports
+fn test_demo_with_different_input() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_classifier();
+    let (class, scores) = classifier.predict("chess tournament")?;
+    assert_eq!(class, "sports");  // Should still classify as sports due to semantic similarity
+    assert!(scores["sports"] > 0.0);
+    Ok(())
 } 

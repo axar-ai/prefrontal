@@ -1,3 +1,13 @@
+// Include the test modules
+mod integration {
+    mod classifier_test;
+}
+
+mod unit {
+    mod classifier_test;
+    mod main_test;
+}
+
 use prefrontal::{Classifier, ClassifierError, ClassDefinition, BuiltinModel};
 
 fn get_test_paths() -> (BuiltinModel, String) {
