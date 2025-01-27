@@ -159,4 +159,30 @@ pub(crate) trait TextEmbedding {
 
         Ok(normalize_vector(&embedding))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Classifier, BuiltinModel, ClassDefinition};
+
+    fn setup_test_classifier() -> Classifier {
+        Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)
+            .unwrap()
+            .add_class(
+                ClassDefinition::new("test", "Test class")
+                    .with_examples(vec!["example text"])
+            )
+            .unwrap()
+            .build()
+            .expect("Failed to create classifier")
+    }
+
+    #[test]
+    fn test_token_counting() {
+        let classifier = setup_test_classifier();
+        let result = classifier.count_tokens("test text");
+        assert!(result.is_ok());
+        assert!(result.unwrap() > 0);
+    }
 } 

@@ -153,4 +153,31 @@ impl Classifier {
     fn cosine_similarity(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
         a.dot(b)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{BuiltinModel, ClassDefinition};
+
+    fn setup_test_classifier() -> Classifier {
+        Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)
+            .unwrap()
+            .add_class(
+                ClassDefinition::new("test", "Test class")
+                    .with_examples(vec!["example text"])
+            )
+            .unwrap()
+            .build()
+            .expect("Failed to create classifier")
+    }
+
+    #[test]
+    fn test_class_info() {
+        let classifier = setup_test_classifier();
+        let info = classifier.info();
+        assert_eq!(info.num_classes, 1);
+        assert!(info.class_descriptions.contains_key("test"));
+    }
 } 

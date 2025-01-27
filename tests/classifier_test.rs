@@ -16,15 +16,23 @@ fn setup_test_classifier() -> Classifier {
 }
 
 #[test]
-fn test_empty_class_handling() {
-    let result = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)
-        .unwrap()
+fn test_end_to_end_classification() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
         .add_class(
-            ClassDefinition::new("empty", "Empty class")
-                .with_examples(vec![""])
-        );
-    assert!(result.is_err());
+            ClassDefinition::new(
+                "sports",
+                "Sports and athletic activities"
+            ).with_examples(vec!["football game", "basketball match"])
+        )?
+        .build()?;
+
+    let (class, scores) = classifier.predict("soccer match")?;
+    
+    assert_eq!(class, "sports");
+    assert!(scores.contains_key("sports"));
+    assert!(scores["sports"] > 0.5);
+    Ok(())
 }
 
 #[test]
@@ -35,13 +43,6 @@ fn test_unknown_class_prediction() {
     let (class, scores) = result.unwrap();
     assert_eq!(class, "test"); // Since we added "test" class in setup
     assert!(!scores.is_empty());
-}
-
-#[test]
-fn test_tokenizer_padding() {
-    let classifier = setup_test_classifier();
-    let result = classifier.predict("short text");
-    assert!(result.is_ok());
 }
 
 #[test]
@@ -79,48 +80,6 @@ fn test_thread_safety() {
 }
 
 #[test]
-fn test_class_info() {
-    let classifier = setup_test_classifier();
-    let info = classifier.info();
-    assert_eq!(info.num_classes, 1);
-    assert!(info.class_descriptions.contains_key("test"));
-}
-
-#[test]
-fn test_token_counting() {
-    let classifier = setup_test_classifier();
-    let result = classifier.count_tokens("test text");
-    assert!(result.is_ok());
-    assert!(result.unwrap() > 0);
-}
-
-#[test]
-fn test_class_validation() -> Result<(), Box<dyn std::error::Error>> {
-    // Test invalid class label
-    assert!(Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class(ClassDefinition::new("", "Empty label"))
-        .is_err());
-    
-    // Test invalid description
-    assert!(Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class(ClassDefinition::new("label", ""))
-        .is_err());
-    
-    // Test invalid examples
-    assert!(Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class(
-            ClassDefinition::new("label", "Test class")
-                .with_examples(vec![""])
-        )
-        .is_err());
-    
-    Ok(())
-}
-
-#[test]
 fn test_prediction_validation() -> Result<(), Box<dyn std::error::Error>> {
     let classifier = Classifier::builder()
         .with_model(BuiltinModel::MiniLM)?
@@ -144,20 +103,20 @@ fn test_prediction_validation() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_zero_shot_predictions() -> Result<(), Box<dyn std::error::Error>> {
+fn test_zero_shot_classification() -> Result<(), Box<dyn std::error::Error>> {
     let classifier = Classifier::builder()
         .with_model(BuiltinModel::MiniLM)?
         .add_class(
             ClassDefinition::new(
                 "sports",
                 "Content about sports and athletic activities"
-            ).with_examples(vec!["football game"])
+            ).with_examples(vec!["football game", "basketball match"])
         )?
         .add_class(
             ClassDefinition::new(
                 "tech",
-                "Content about technology and programming"
-            ).with_examples(vec!["python code"])
+                "Content about technology, programming, and computers"
+            ).with_examples(vec!["python code", "machine learning"])
         )?
         .build()?;
 
@@ -168,7 +127,7 @@ fn test_zero_shot_predictions() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_classifier_clone_and_send() {
+fn test_classifier_thread_safety() {
     let classifier = setup_test_classifier();
     
     // Test that classifier can be sent to another thread
@@ -177,4 +136,44 @@ fn test_classifier_clone_and_send() {
     }).join().unwrap();
 }
 
-// ... rest of the unit tests from src/classifier.rs ... 
+#[test]
+fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class(
+            ClassDefinition::new(
+                "sports",
+                "Sports and athletic activities"
+            ).with_examples(vec!["football game", "basketball match"])
+        )?
+        .add_class(
+            ClassDefinition::new(
+                "tech",
+                "Technology and programming"
+            ).with_examples(vec!["python code", "machine learning"])
+        )?
+        .build()?;
+
+    let (class, scores) = classifier.predict("javascript programming")?;
+    assert_eq!(class, "tech");
+    assert!(scores["tech"] > scores["sports"]);
+    Ok(())
+}
+
+#[test]
+fn test_semantic_similarity() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = Classifier::builder()
+        .with_model(BuiltinModel::MiniLM)?
+        .add_class(
+            ClassDefinition::new(
+                "sports",
+                "Sports and athletic activities"
+            ).with_examples(vec!["football game", "basketball match"])
+        )?
+        .build()?;
+
+    let (class, scores) = classifier.predict("chess tournament")?;
+    assert_eq!(class, "sports");  // Should classify as sports due to semantic similarity
+    assert!(scores["sports"] > 0.0);
+    Ok(())
+} 

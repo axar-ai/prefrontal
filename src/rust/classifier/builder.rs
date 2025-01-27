@@ -402,4 +402,48 @@ impl ClassifierBuilder {
 
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BuiltinModel;
+
+    #[test]
+    fn test_empty_class_handling() {
+        let result = Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)
+            .unwrap()
+            .add_class(
+                ClassDefinition::new("empty", "Empty class")
+                    .with_examples(vec![""])
+            );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_class_validation() -> Result<(), Box<dyn std::error::Error>> {
+        // Test invalid class label
+        assert!(Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)?
+            .add_class(ClassDefinition::new("", "Empty label"))
+            .is_err());
+        
+        // Test invalid description
+        assert!(Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)?
+            .add_class(ClassDefinition::new("label", ""))
+            .is_err());
+        
+        // Test invalid examples
+        assert!(Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)?
+            .add_class(
+                ClassDefinition::new("label", "Test class")
+                    .with_examples(vec![""])
+            )
+            .is_err());
+        
+        Ok(())
+    }
 } 
