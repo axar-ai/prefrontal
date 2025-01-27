@@ -95,4 +95,15 @@ mod tests {
         let builder = create_session_builder(&config);
         assert!(builder.is_ok());
     }
+
+    #[test]
+    fn test_default_config() {
+        let config = RuntimeConfig::default();
+        assert_eq!(config.inter_threads, 0);
+        assert_eq!(config.intra_threads, 0);
+        match config.optimization_level {
+            GraphOptimizationLevel::Level3 => (),
+            _ => panic!("Expected GraphOptimizationLevel::Level3"),
+        }
+    }
 } 

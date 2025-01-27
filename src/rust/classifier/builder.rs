@@ -1,15 +1,15 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokenizers::Tokenizer;
 use ort::session::Session;
 use ndarray::Array1;
 use log::{info, error};
-use std::sync::Arc;
 
 use super::error::ClassifierError;
 use super::embedding::TextEmbedding;
 use super::model::Classifier;
 use super::utils::{normalize_vector, average_vectors};
-use crate::{BuiltinModel, ModelCharacteristics, runtime::{RuntimeConfig, create_session_builder}};
+use crate::{BuiltinModel, ModelCharacteristics, runtime::{RuntimeConfig, create_session_builder}, ModelManager};
 
 /// Represents a class definition with required label, description and optional examples
 #[derive(Debug, Clone)]
@@ -96,10 +96,6 @@ impl TextEmbedding for ClassifierBuilder {
     fn session(&self) -> Option<&Session> {
         self.session.as_ref()
     }
-
-    fn max_sequence_length(&self) -> Option<usize> {
-        self.model_characteristics.as_ref().map(|c| c.max_sequence_length)
-    }
 }
 
 impl ClassifierBuilder {
@@ -128,37 +124,48 @@ impl ClassifierBuilder {
         if self.model_path.is_some() || self.tokenizer_path.is_some() {
             return Err(ClassifierError::BuildError("Model and tokenizer paths already set".to_string()));
         }
-        let (model_path, tokenizer_path) = model.get_paths();
+
+        // Get model info
+        let model_info = model.get_model_info();
         
-        // Store model characteristics
-        self.model_characteristics = Some(model.characteristics());
-        
-        // Validate paths exist
-        if !std::path::Path::new(model_path).exists() {
-            return Err(ClassifierError::BuildError(format!("Model file not found: {}", model_path)));
-        }
-        if !std::path::Path::new(tokenizer_path).exists() {
-            return Err(ClassifierError::BuildError(format!("Tokenizer file not found: {}", tokenizer_path)));
+        // Initialize model manager with default location
+        let manager = ModelManager::new_default()
+            .map_err(|e| ClassifierError::BuildError(format!("Failed to create model manager: {}", e)))?;
+
+        // Check if model is downloaded
+        if !manager.is_model_downloaded(&model_info.name) {
+            return Err(ClassifierError::BuildError(format!(
+                "Model '{}' is not downloaded. Please download it first using ModelManager::download_model()",
+                model_info.name
+            )));
         }
 
+        // Get paths
+        let model_path = manager.get_model_path(&model_info.name);
+        let tokenizer_path = manager.get_tokenizer_path(&model_info.name);
+
         // Load tokenizer
-        let tokenizer = Tokenizer::from_file(tokenizer_path)
+        let tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|e| {
                 error!("Failed to load tokenizer: {}", e);
                 ClassifierError::BuildError(format!("Failed to load tokenizer: {}", e))
             })?;
+        
         info!("Tokenizer loaded successfully");
 
         // Create session using the singleton environment
         let session = create_session_builder(&self.runtime_config)?
-            .commit_from_file(model_path)?;
+            .commit_from_file(&model_path)?;
 
         // Validate model structure
         Self::validate_model(&session)?;
         info!("Model structure validated successfully");
         
-        self.model_path = Some(model_path.to_string());
-        self.tokenizer_path = Some(tokenizer_path.to_string());
+        // Store model characteristics
+        self.model_characteristics = Some(model.characteristics());
+        
+        self.model_path = Some(model_path.to_string_lossy().to_string());
+        self.tokenizer_path = Some(tokenizer_path.to_string_lossy().to_string());
         self.tokenizer = Some(tokenizer);
         self.session = Some(session);
         Ok(self)
@@ -192,6 +199,7 @@ impl ClassifierBuilder {
                 error!("Failed to load tokenizer: {}", e);
                 ClassifierError::BuildError(format!("Failed to load tokenizer: {}", e))
             })?;
+        
         info!("Tokenizer loaded successfully");
 
         // Create session using the singleton environment
@@ -216,7 +224,7 @@ impl ClassifierBuilder {
         // Set model characteristics with provided or default sequence length
         self.model_characteristics = Some(ModelCharacteristics {
             embedding_size,
-            max_sequence_length: max_sequence_length.unwrap_or(512), // More reasonable default
+            max_sequence_length: max_sequence_length.unwrap_or(256), // Default to MiniLM's limit
             model_size_mb: 0, // Not critical for functionality
         });
         
@@ -272,47 +280,31 @@ impl ClassifierBuilder {
         Ok(())
     }
 
-    /// Adds a class with its definition
-    /// 
-    /// # Arguments
-    /// * `class_def` - The class definition containing label, description, and optional examples
-    /// 
-    /// # Returns
-    /// * `Ok(Self)` if the class was added successfully
-    /// * `Err(ClassifierError::ValidationError)` if validation fails
-    /// 
-    /// # Example
-    /// ```
-    /// # use prefrontal::{Classifier, ClassDefinition, BuiltinModel};
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let classifier = Classifier::builder()
-    ///     .with_model(BuiltinModel::MiniLM)?
-    ///     .add_class(
-    ///         ClassDefinition::new("tech", "Technology related content")
-    ///             .with_examples(vec!["computer programming", "software development"])
-    ///     )?
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn add_class(mut self, class_def: ClassDefinition) -> Result<Self, ClassifierError> {
-        // Check for duplicate class
-        if self.class_examples.contains_key(&class_def.label) {
+    /// Adds a class to the classifier with examples and description
+    pub fn add_class(mut self, class: ClassDefinition) -> Result<Self, ClassifierError> {
+        const MAX_CLASSES: usize = 100;
+        
+        // Get examples, defaulting to empty vec if None
+        let examples = class.examples.unwrap_or_default();
+        
+        // Validate class data
+        Self::validate_class_data(
+            &class.label,
+            &class.description,
+            &examples
+        )?;
+        
+        // Check number of classes
+        if self.class_examples.len() >= MAX_CLASSES {
             return Err(ClassifierError::ValidationError(
-                format!("Class '{}' already exists", class_def.label)
+                format!("Maximum number of classes ({}) exceeded", MAX_CLASSES)
             ));
         }
-
-        // Get examples, defaulting to empty vec if None
-        let examples = class_def.examples.unwrap_or_default();
         
-        // Validate all class data
-        Self::validate_class_data(&class_def.label, &class_def.description, &examples)?;
-
         // Store class data
-        self.class_descriptions.insert(class_def.label.clone(), class_def.description);
-        self.class_examples.insert(class_def.label, examples);
-
+        self.class_examples.insert(class.label.clone(), examples);
+        self.class_descriptions.insert(class.label, class.description);
+        
         Ok(self)
     }
 
@@ -409,41 +401,51 @@ mod tests {
     use super::*;
     use crate::BuiltinModel;
 
-    #[test]
-    fn test_empty_class_handling() {
+    async fn setup_model() -> Result<BuiltinModel, Box<dyn std::error::Error>> {
+        let manager = ModelManager::new_default()?;
+        let model_info = BuiltinModel::MiniLM.get_model_info();
+        manager.ensure_model_downloaded(&model_info).await?;
+        Ok(BuiltinModel::MiniLM)
+    }
+
+    #[tokio::test]
+    async fn test_empty_class_handling() -> Result<(), Box<dyn std::error::Error>> {
+        let model = setup_model().await?;
         let result = Classifier::builder()
-            .with_model(BuiltinModel::MiniLM)
-            .unwrap()
+            .with_model(model)?
             .add_class(
                 ClassDefinition::new("empty", "Empty class")
                     .with_examples(vec![""])
             );
         assert!(result.is_err());
+        Ok(())
     }
 
-    #[test]
-    fn test_class_validation() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_class_validation() -> Result<(), Box<dyn std::error::Error>> {
+        let model = setup_model().await?;
+
         // Test invalid class label
-        assert!(Classifier::builder()
-            .with_model(BuiltinModel::MiniLM)?
+        assert!(ClassifierBuilder::new()
+            .with_model(model)?
             .add_class(ClassDefinition::new("", "Empty label"))
             .is_err());
-        
+
         // Test invalid description
-        assert!(Classifier::builder()
-            .with_model(BuiltinModel::MiniLM)?
+        assert!(ClassifierBuilder::new()
+            .with_model(model)?
             .add_class(ClassDefinition::new("label", ""))
             .is_err());
-        
+
         // Test invalid examples
-        assert!(Classifier::builder()
-            .with_model(BuiltinModel::MiniLM)?
+        assert!(ClassifierBuilder::new()
+            .with_model(model)?
             .add_class(
                 ClassDefinition::new("label", "Test class")
                     .with_examples(vec![""])
             )
             .is_err());
-        
+
         Ok(())
     }
 } 

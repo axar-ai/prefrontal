@@ -50,3 +50,8 @@ models/**/*
 /local/
 /dev/
 /notes/
+
+# Exclude downloaded models
+/models/
+/benches/target/
+/docs/book/

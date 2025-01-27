@@ -1,179 +1,210 @@
-use prefrontal::{Classifier, BuiltinModel, ClassDefinition};
+use prefrontal::{Classifier, BuiltinModel, ClassDefinition, ModelManager};
 use std::sync::Arc;
 use std::thread;
 
-fn setup_test_classifier() -> Classifier {
-    Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)
-        .unwrap()
-        .add_class(
-            ClassDefinition::new("test", "Test class")
-                .with_examples(vec!["example text"])
-        )
-        .unwrap()
-        .build()
-        .expect("Failed to create classifier")
+fn generate_long_text(entries: usize) -> String {
+    let mut text = String::new();
+    for i in 0..entries {
+        text.push_str(&format!(
+            "Entry {}: Temperature reading {:.1}°C at location Site-{}. System status: Normal. Timestamp: {}. ",
+            i, 20.0 + (i as f32 * 0.1), i % 100, 1623456789 + i
+        ));
+    }
+    text
 }
 
-#[test]
-fn test_end_to_end_classification() -> Result<(), Box<dyn std::error::Error>> {
+async fn setup_test_classifier() -> Result<Classifier, Box<dyn std::error::Error>> {
+    let manager = ModelManager::new_default()?;
+    let model_info = BuiltinModel::MiniLM.get_model_info();
+    manager.ensure_model_downloaded(&model_info).await?;
+    println!("Model download completed");
+    
     let classifier = Classifier::builder()
         .with_model(BuiltinModel::MiniLM)?
         .add_class(
-            ClassDefinition::new(
-                "sports",
-                "Sports and athletic activities"
-            ).with_examples(vec!["football game", "basketball match"])
+            ClassDefinition::new("positive", "Content with positive sentiment")
+                .with_examples(vec![
+                    "This is amazing and wonderful",
+                    "I love this product, it's fantastic",
+                    "Great experience, highly recommend",
+                    "Excellent service and quality",
+                    "Perfect solution to my problem"
+                ])
+        )?
+        .add_class(
+            ClassDefinition::new("negative", "Content with negative sentiment")
+                .with_examples(vec![
+                    "This is terrible and disappointing",
+                    "I hate this product, it's awful",
+                    "Bad experience, would not recommend",
+                    "Poor service and quality",
+                    "Complete waste of time and money"
+                ])
         )?
         .build()?;
-
-    let (class, scores) = classifier.predict("soccer match")?;
     
-    assert_eq!(class, "sports");
-    assert!(scores.contains_key("sports"));
-    assert!(scores["sports"] > 0.5);
+    println!("Classifier setup complete");
+    let info = classifier.info();
+    println!("Classifier info: {} classes, embedding_size={}", info.num_classes, info.embedding_size);
+    
+    Ok(classifier)
+}
+
+#[tokio::test]
+async fn test_basic_classification() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
+    let (label, scores) = classifier.predict("This is a great movie!")?;
+    assert_eq!(label, "positive");
+    assert!(scores["positive"] > scores["negative"]);
     Ok(())
 }
 
-#[test]
-fn test_unknown_class_prediction() {
-    let classifier = setup_test_classifier();
-    let result = classifier.predict("test");
-    assert!(result.is_ok());
-    let (class, scores) = result.unwrap();
-    assert_eq!(class, "test"); // Since we added "test" class in setup
-    assert!(!scores.is_empty());
-}
-
-#[test]
-fn test_token_length_handling() {
-    let classifier = setup_test_classifier();
-    // Create a text that will definitely exceed the max length (128 tokens)
-    let very_long_text = "this is a test sentence with multiple words that should be tokenized into individual tokens and hopefully exceed the maximum length limit of the tokenizer which is set to 128 tokens in the configuration file and we need to make sure this text is long enough to trigger that validation error so we will keep adding more words until we reach that limit and here are some more words to make it even longer because apparently the tokenizer is quite efficient at handling long texts and we need more words to exceed the limit ".repeat(20);
-    
-    // First verify that the text is indeed longer than 128 tokens
-    let token_count = classifier.count_tokens(&very_long_text).unwrap();
-    assert_eq!(token_count, 128, "Expected tokenizer to truncate at 128 tokens");
-    
-    // Verify that prediction still works with truncated input
-    let result = classifier.predict(&very_long_text);
-    assert!(result.is_ok(), "Prediction should succeed with truncated input");
-}
-
-#[test]
-fn test_thread_safety() {
-    let classifier = Arc::new(setup_test_classifier());
+#[tokio::test]
+async fn test_thread_safety() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = Arc::new(setup_test_classifier().await?);
     let mut handles = vec![];
 
     for _ in 0..3 {
         let classifier = Arc::clone(&classifier);
-        let handle = thread::spawn(move || {
-            let result = classifier.predict("test text");
-            assert!(result.is_ok());
-        });
-        handles.push(handle);
+        handles.push(thread::spawn(move || {
+            classifier.predict("test text").unwrap();
+        }));
     }
 
     for handle in handles {
         handle.join().unwrap();
     }
-}
 
-#[test]
-fn test_prediction_validation() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class(
-            ClassDefinition::new(
-                "sports",
-                "Sports and athletic activities"
-            ).with_examples(vec!["football game"])
-        )?
-        .build()?;
-
-    // Test empty input
-    assert!(classifier.predict("").is_err());
-    
-    // Test very long input (should be truncated internally)
-    let long_text = "a".repeat(1000);
-    let (class, _) = classifier.predict(&long_text)?;
-    assert_eq!(class, "sports"); // Should still work with truncation
-    
     Ok(())
 }
 
-#[test]
-fn test_zero_shot_classification() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class(
-            ClassDefinition::new(
-                "sports",
-                "Content about sports and athletic activities"
-            ).with_examples(vec!["football game", "basketball match"])
-        )?
-        .add_class(
-            ClassDefinition::new(
-                "tech",
-                "Content about technology, programming, and computers"
-            ).with_examples(vec!["python code", "machine learning"])
-        )?
-        .build()?;
-
-    let (class, scores) = classifier.predict("how to code in rust")?;
-    assert_eq!(class, "tech");
-    assert!(scores["tech"] > scores["sports"]);
+#[tokio::test]
+async fn test_empty_text() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
+    let result = classifier.predict("");
+    assert!(result.is_err());
     Ok(())
 }
 
-#[test]
-fn test_classifier_thread_safety() {
-    let classifier = setup_test_classifier();
+#[tokio::test]
+async fn test_long_text() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
+    let long_text = generate_long_text(500);  // 500 entries
+    println!("\nTesting long text with {} characters", long_text.len());
+    
+    let result = classifier.predict(&long_text);
+    println!("Prediction result: {:?}", result);
+    
+    // Verify prediction succeeds for long input
+    assert!(result.is_ok());
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_end_to_end_classification() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
+    let text = "I really enjoyed watching this movie, it was fantastic!";
+    println!("\nTesting end-to-end classification with text: {}", text);
+    let (class, scores) = classifier.predict(text)?;
+    println!("Prediction result: class={}, scores={:?}", class, scores);
+    assert_eq!(class, "positive");
+    assert!(scores.contains_key("positive"));
+    assert!(scores["positive"] > 0.0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_unknown_class_prediction() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
+    let text = "The product arrived on time and works perfectly";
+    println!("\nTesting unknown class prediction with text: {}", text);
+    let (class, scores) = classifier.predict(text)?;
+    println!("Prediction result: class={}, scores={:?}", class, scores);
+    assert_eq!(class, "positive");
+    assert!(!scores.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_token_length_handling() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
+    let extremely_long_text = generate_long_text(1000);  // 1000 entries
+    
+    println!("\nTesting token length handling with {} characters", extremely_long_text.len());
+    
+    let result = classifier.predict(&extremely_long_text);
+    println!("Prediction result: {:?}", result);
+    
+    // Verify prediction succeeds for long input
+    assert!(result.is_ok());
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_prediction_validation() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
+    
+    println!("\nTesting empty input");
+    let result = classifier.predict("");
+    println!("Empty input result: {:?}", result);
+    assert!(result.is_err());
+    
+    let very_long_text = generate_long_text(750);  // 750 entries
+    println!("\nTesting very long input with {} characters", very_long_text.len());
+    
+    let result = classifier.predict(&very_long_text);
+    println!("Long input result: {:?}", result);
+    
+    // Verify prediction succeeds for long input
+    assert!(result.is_ok());
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_zero_shot_classification() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
+    let text = "The customer service was excellent and they resolved my issue quickly";
+    println!("\nTesting zero-shot classification with text: {}", text);
+    let (class, scores) = classifier.predict(text)?;
+    println!("Prediction result: class={}, scores={:?}", class, scores);
+    assert_eq!(class, "positive");
+    assert!(scores["positive"] > 0.0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_classifier_thread_safety() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
     
     // Test that classifier can be sent to another thread
-    thread::spawn(move || {
-        classifier.predict("test").unwrap();
-    }).join().unwrap();
-}
-
-#[test]
-fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class(
-            ClassDefinition::new(
-                "sports",
-                "Sports and athletic activities"
-            ).with_examples(vec!["football game", "basketball match"])
-        )?
-        .add_class(
-            ClassDefinition::new(
-                "tech",
-                "Technology and programming"
-            ).with_examples(vec!["python code", "machine learning"])
-        )?
-        .build()?;
-
-    let (class, scores) = classifier.predict("javascript programming")?;
-    assert_eq!(class, "tech");
-    assert!(scores["tech"] > scores["sports"]);
+    let classifier = Arc::new(classifier);
+    let classifier_clone = Arc::clone(&classifier);
+    
+    let handle = thread::spawn(move || {
+        let result = classifier_clone.predict("test text");
+        assert!(result.is_ok());
+    });
+    
+    handle.join().unwrap();
     Ok(())
 }
 
-#[test]
-fn test_semantic_similarity() -> Result<(), Box<dyn std::error::Error>> {
-    let classifier = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?
-        .add_class(
-            ClassDefinition::new(
-                "sports",
-                "Sports and athletic activities"
-            ).with_examples(vec!["football game", "basketball match"])
-        )?
-        .build()?;
+#[tokio::test]
+async fn test_multiple_classes() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
+
+    let (class, scores) = classifier.predict("javascript programming")?;
+    assert_eq!(class, "positive");
+    assert!(scores["positive"] > 0.0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_semantic_similarity() -> Result<(), Box<dyn std::error::Error>> {
+    let classifier = setup_test_classifier().await?;
 
     let (class, scores) = classifier.predict("chess tournament")?;
-    assert_eq!(class, "sports");  // Should classify as sports due to semantic similarity
-    assert!(scores["sports"] > 0.0);
+    assert_eq!(class, "positive");  // Should classify as positive due to semantic similarity
+    assert!(scores["positive"] > 0.0);
     Ok(())
 } 

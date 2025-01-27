@@ -1,37 +1,57 @@
-use ort::Error as OrtError;
+use std::error::Error;
 use std::fmt;
+use crate::ModelError;
 
 /// Represents the different types of errors that can occur in the text classifier.
 #[derive(Debug)]
 pub enum ClassifierError {
-    /// Error occurred while loading or using the tokenizer
-    TokenizerError(String),
-    /// Error occurred while loading or running the ONNX model
+    /// Error during model loading or inference
     ModelError(String),
-    /// Error occurred during the build phase
+    /// Error during tokenization
+    TokenizerError(String),
+    /// Error during classifier construction
     BuildError(String),
-    /// Error occurred while making predictions
-    PredictionError(String),
-    /// Error occurred due to invalid input parameters
+    /// Error during input validation
     ValidationError(String),
+    /// Error during model management
+    ModelManagementError(ModelError),
 }
 
 impl fmt::Display for ClassifierError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TokenizerError(msg) => write!(f, "Tokenizer error: {}", msg),
-            Self::ModelError(msg) => write!(f, "Model error: {}", msg),
-            Self::BuildError(msg) => write!(f, "Build error: {}", msg),
-            Self::PredictionError(msg) => write!(f, "Prediction error: {}", msg),
-            Self::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            ClassifierError::ModelError(msg) => write!(f, "Model error: {}", msg),
+            ClassifierError::TokenizerError(msg) => write!(f, "Tokenizer error: {}", msg),
+            ClassifierError::BuildError(msg) => write!(f, "Build error: {}", msg),
+            ClassifierError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            ClassifierError::ModelManagementError(e) => write!(f, "Model management error: {}", e),
         }
     }
 }
 
-impl std::error::Error for ClassifierError {}
+impl Error for ClassifierError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ClassifierError::ModelManagementError(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
-impl From<OrtError> for ClassifierError {
-    fn from(err: OrtError) -> Self {
-        ClassifierError::BuildError(err.to_string())
+impl From<ModelError> for ClassifierError {
+    fn from(error: ModelError) -> Self {
+        ClassifierError::ModelManagementError(error)
+    }
+}
+
+impl From<ort::Error> for ClassifierError {
+    fn from(error: ort::Error) -> Self {
+        ClassifierError::ModelError(error.to_string())
+    }
+}
+
+impl From<tokenizers::Error> for ClassifierError {
+    fn from(error: tokenizers::Error) -> Self {
+        ClassifierError::TokenizerError(error.to_string())
     }
 } 

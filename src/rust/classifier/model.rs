@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokenizers::Tokenizer;
+use std::collections::HashMap;
+use anyhow::Result;
 use ort::session::Session;
 use ndarray::Array1;
-
+use tokenizers::Tokenizer;
 use super::error::ClassifierError;
 use super::embedding::TextEmbedding;
 use crate::ModelCharacteristics;
@@ -78,15 +78,11 @@ const _: () = {
 
 impl TextEmbedding for Classifier {
     fn tokenizer(&self) -> Option<&Tokenizer> {
-        Some(&*self.tokenizer)
+        Some(&self.tokenizer)
     }
     
     fn session(&self) -> Option<&Session> {
-        Some(&*self.session)
-    }
-
-    fn max_sequence_length(&self) -> Option<usize> {
-        Some(self.model_characteristics.max_sequence_length)
+        Some(&self.session)
     }
 }
 
@@ -108,30 +104,10 @@ impl Classifier {
         }
     }
 
-    /// Returns the number of tokens in the input text
-    /// This is useful to check if text will fit within the model's max_sequence_length
-    /// before attempting classification
-    pub fn count_tokens(&self, text: &str) -> Result<usize, ClassifierError> {
-        TextEmbedding::count_tokens(self, text)
-    }
-
     /// Makes a prediction for the given text
     pub fn predict(&self, text: &str) -> Result<(String, HashMap<String, f32>), ClassifierError> {
         if text.is_empty() {
             return Err(ClassifierError::ValidationError("Input text cannot be empty".into()));
-        }
-        
-        // First check token count to provide a more specific error
-        let token_count = self.count_tokens(text)?;
-            
-        if token_count > self.model_characteristics.max_sequence_length {
-            return Err(ClassifierError::ValidationError(
-                format!(
-                    "Input text is too long ({} tokens, max is {}). Consider splitting the text into smaller chunks.",
-                    token_count,
-                    self.model_characteristics.max_sequence_length
-                )
-            ));
         }
         
         let input_vector = self.embed_text(text)?;
@@ -158,26 +134,30 @@ impl Classifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BuiltinModel, ClassDefinition};
+    use crate::{ModelManager, BuiltinModel, ClassDefinition};
 
-    fn setup_test_classifier() -> Classifier {
-        Classifier::builder()
-            .with_model(BuiltinModel::MiniLM)
-            .unwrap()
+    async fn setup_test_classifier() -> Result<Classifier, Box<dyn std::error::Error>> {
+        let manager = ModelManager::new_default()?;
+        let model_info = BuiltinModel::MiniLM.get_model_info();
+        manager.ensure_model_downloaded(&model_info).await?;
+
+        let classifier = Classifier::builder()
+            .with_model(BuiltinModel::MiniLM)?
             .add_class(
                 ClassDefinition::new("test", "Test class")
                     .with_examples(vec!["example text"])
-            )
-            .unwrap()
-            .build()
-            .expect("Failed to create classifier")
+            )?
+            .build()?;
+
+        Ok(classifier)
     }
 
-    #[test]
-    fn test_class_info() {
-        let classifier = setup_test_classifier();
+    #[tokio::test]
+    async fn test_class_info() -> Result<(), Box<dyn std::error::Error>> {
+        let classifier = setup_test_classifier().await?;
         let info = classifier.info();
         assert_eq!(info.num_classes, 1);
         assert!(info.class_descriptions.contains_key("test"));
+        Ok(())
     }
 } 

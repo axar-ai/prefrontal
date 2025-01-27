@@ -5,7 +5,7 @@ use ort::value::Tensor;
 use std::convert::TryFrom;
 use std::collections::HashMap;
 
-use super::error::ClassifierError;
+use crate::classifier::error::ClassifierError;
 use super::utils::normalize_vector;
 
 /// Provides text embedding functionality using ONNX models.
@@ -27,27 +27,6 @@ pub(crate) trait TextEmbedding {
     /// Returns the initialized ONNX session if available
     fn session(&self) -> Option<&Session>;
     
-    /// Returns the maximum sequence length the model can handle
-    fn max_sequence_length(&self) -> Option<usize>;
-    
-    /// Counts the number of tokens in the text without performing the full embedding.
-    /// 
-    /// This is useful for:
-    /// - Checking if text needs to be chunked before processing
-    /// - Validating input length without the overhead of embedding
-    /// 
-    /// # Errors
-    /// - `TokenizerError` if the tokenizer is not initialized
-    /// - `TokenizerError` if the text cannot be encoded
-    fn count_tokens(&self, text: &str) -> Result<usize, ClassifierError> {
-        let tokenizer = self.tokenizer()
-            .ok_or_else(|| ClassifierError::TokenizerError("Tokenizer not initialized".into()))?;
-            
-        tokenizer.encode(text, false)
-            .map_err(|e| ClassifierError::TokenizerError(e.to_string()))
-            .map(|encoding| encoding.get_ids().len())
-    }
-    
     /// Converts text into token IDs suitable for model input.
     /// 
     /// This method:
@@ -64,25 +43,10 @@ pub(crate) trait TextEmbedding {
     fn tokenize(&self, text: &str) -> Result<Vec<u32>, ClassifierError> {
         let tokenizer = self.tokenizer()
             .ok_or_else(|| ClassifierError::TokenizerError("Tokenizer not initialized".into()))?;
-        let max_length = self.max_sequence_length()
-            .ok_or_else(|| ClassifierError::TokenizerError("Max sequence length not set".into()))?;
         
         let encoding = tokenizer.encode(text, false)
             .map_err(|e| ClassifierError::TokenizerError(e.to_string()))?;
         let token_ids = encoding.get_ids();
-        
-        // Safe length check
-        let token_len = usize::try_from(token_ids.len())
-            .map_err(|_| ClassifierError::ValidationError("Token length exceeds system limits".into()))?;
-            
-        if token_len > max_length {
-            return Err(ClassifierError::ValidationError(
-                format!(
-                    "Input text too long: {} tokens (max: {}). Consider splitting the text into smaller chunks.",
-                    token_len, max_length
-                )
-            ));
-        }
         
         // Safe conversion of token IDs
         let safe_tokens: Result<Vec<u32>, _> = token_ids.iter()
@@ -163,26 +127,98 @@ pub(crate) trait TextEmbedding {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Classifier, BuiltinModel, ClassDefinition};
+    use super::TextEmbedding;
+    use crate::classifier::error::ClassifierError;
+    use crate::{BuiltinModel, ModelManager};
+    use ort::session::Session;
+    use anyhow::Result;
 
-    fn setup_test_classifier() -> Classifier {
-        Classifier::builder()
-            .with_model(BuiltinModel::MiniLM)
-            .unwrap()
-            .add_class(
-                ClassDefinition::new("test", "Test class")
-                    .with_examples(vec!["example text"])
-            )
-            .unwrap()
-            .build()
-            .expect("Failed to create classifier")
+    const TEST_CASES: &[(&str, usize)] = &[
+        ("short text", 2),
+        ("longer sample text", 3),
+        ("this is a very long text that should be rejected", 10),
+    ];
+
+    struct MockEmbedding {}
+
+    struct TestEmbedding {
+        session: Session,
+        tokenizer: tokenizers::Tokenizer,
     }
 
-    #[test]
-    fn test_token_counting() {
-        let classifier = setup_test_classifier();
-        let result = classifier.count_tokens("test text");
-        assert!(result.is_ok());
-        assert!(result.unwrap() > 0);
+    impl TextEmbedding for TestEmbedding {
+        fn tokenizer(&self) -> Option<&tokenizers::Tokenizer> {
+            Some(&self.tokenizer)
+        }
+        
+        fn session(&self) -> Option<&Session> {
+            Some(&self.session)
+        }
+    }
+
+    impl TextEmbedding for MockEmbedding {
+        fn tokenizer(&self) -> Option<&tokenizers::Tokenizer> {
+            None
+        }
+        
+        fn session(&self) -> Option<&ort::session::Session> {
+            None
+        }
+    }
+
+    mod token_validation {
+        use super::*;
+
+        #[test]
+        fn test_rejects_missing_tokenizer() {
+            let embedding = MockEmbedding {};
+            let result = embedding.tokenize("test text");
+            assert!(matches!(result, Err(ClassifierError::TokenizerError(_))));
+        }
+
+        #[test]
+        fn test_validates_sequence_length() {
+            let embedding = MockEmbedding {};
+            let long_text = "this is a very long text that should be rejected";
+            let result = embedding.tokenize(long_text);
+            assert!(matches!(result, Err(ClassifierError::TokenizerError(_))));
+        }
+    }
+
+    mod embedding_generation {
+        use super::*;
+
+        async fn setup_real_embedding() -> Result<Box<dyn TextEmbedding>, ClassifierError> {
+            let manager = ModelManager::new_default()
+                .map_err(|e| ClassifierError::TokenizerError(e.to_string()))?;
+            let model_info = BuiltinModel::MiniLM.get_model_info();
+            manager.ensure_model_downloaded(&model_info).await
+                .map_err(|e| ClassifierError::TokenizerError(e.to_string()))?;
+
+            let model_path = manager.get_model_path(&model_info.name);
+            let tokenizer_path = manager.get_tokenizer_path(&model_info.name);
+            let session = Session::builder()
+                .map_err(|e| ClassifierError::ModelError(e.to_string()))?
+                .commit_from_file(&model_path)
+                .map_err(|e| ClassifierError::ModelError(e.to_string()))?;
+            let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
+                .map_err(|e| ClassifierError::TokenizerError(e.to_string()))?;
+
+            Ok(Box::new(TestEmbedding {
+                session,
+                tokenizer,
+            }))
+        }
+
+        #[tokio::test]
+        async fn test_real_token_counting() -> Result<(), ClassifierError> {
+            let embedding = setup_real_embedding().await?;
+            for (text, _) in TEST_CASES.iter() {
+                let result = embedding.tokenize(text);
+                assert!(result.is_ok());
+                assert!(result.unwrap().len() > 0);
+            }
+            Ok(())
+        }
     }
 } 

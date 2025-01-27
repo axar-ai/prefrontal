@@ -59,9 +59,11 @@
 
 pub mod classifier;
 mod runtime;
+pub mod model_manager;
 
 pub use classifier::{Classifier, ClassifierBuilder, ClassifierError, ClassifierInfo, ClassDefinition};
 pub use runtime::{RuntimeConfig, create_session_builder};
+pub use model_manager::{ModelManager, ModelInfo, ModelError};
 
 /// Built-in models that can be used with the classifier
 #[derive(Debug, Clone, Copy)]
@@ -99,13 +101,16 @@ impl BuiltinModel {
         }
     }
 
-    /// Returns the paths to the model and tokenizer files
-    pub fn get_paths(&self) -> (&'static str, &'static str) {
+    /// Returns the model info for downloading and verification
+    pub fn get_model_info(&self) -> ModelInfo {
         match self {
-            BuiltinModel::MiniLM => (
-                "models/onnx-minilm/model.onnx",
-                "models/onnx-minilm/tokenizer.json"
-            )
+            BuiltinModel::MiniLM => ModelInfo {
+                name: "minilm".to_string(),
+                model_url: "https://huggingface.co/axar-ai/minilm/resolve/main/model.onnx".to_string(),
+                tokenizer_url: "https://huggingface.co/axar-ai/minilm/resolve/main/tokenizer.json".to_string(),
+                model_hash: "37f1ea074b7166e87295fce31299287d5fb79f76b8b7227fccc8a9f2f1ba4e16".to_string(),
+                tokenizer_hash: "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0".to_string(),
+            }
         }
     }
 }

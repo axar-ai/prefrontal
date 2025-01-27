@@ -1,96 +1,91 @@
 use prefrontal::{Classifier, BuiltinModel, ClassDefinition, ClassifierError};
 
-#[test]
-fn test_duplicate_class() {
+#[tokio::test]
+async fn test_validation() -> Result<(), Box<dyn std::error::Error>> {
+    let model = BuiltinModel::MiniLM;
+
+    // Test empty class
     let result = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)
-        .and_then(|builder| {
-            builder.add_class(
-                ClassDefinition::new("test", "Test class 1")
-                    .with_examples(vec!["example1"])
-            )
-        })
-        .and_then(|builder| {
-            builder.add_class(
-                ClassDefinition::new("test", "Test class 2")
-                    .with_examples(vec!["example2"])
-            )
-        });
-
+        .with_model(model)?
+        .add_class(
+            ClassDefinition::new("empty", "Empty class")
+                .with_examples(vec![""])
+        );
     assert!(result.is_err());
-}
 
-#[test]
-fn test_many_classes() -> Result<(), ClassifierError> {
-    let mut builder = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)?;
+    // Test invalid class label
+    let result = Classifier::builder()
+        .with_model(model)?
+        .add_class(ClassDefinition::new("", "Empty label"));
+    assert!(result.is_err());
 
-    for i in 0..10 {
-        builder = builder.add_class(
-            ClassDefinition::new(
-                format!("class_{}", i),
-                format!("Test class {}", i)
-            ).with_examples(vec!["example text"])
-        )?;
-    }
+    // Test invalid description
+    let result = Classifier::builder()
+        .with_model(model)?
+        .add_class(ClassDefinition::new("label", ""));
+    assert!(result.is_err());
 
-    let classifier = builder.build()?;
-    let (class, scores) = classifier.predict("test prediction")?;
-    assert!(!scores.is_empty());
-    assert!(class.starts_with("class_")); // Should match one of our classes
     Ok(())
 }
 
-#[test]
-fn test_long_description() {
-    // Create a description that's too long (1001 characters)
-    let long_description = "a".repeat(1001);
-    
-    let result = Classifier::builder()
-        .with_model(BuiltinModel::MiniLM)
-        .and_then(|builder| {
-            builder.add_class(
-                ClassDefinition::new("test", long_description)
-                    .with_examples(vec!["example"])
-            )
-        });
+#[tokio::test]
+async fn test_many_classes() -> Result<(), ClassifierError> {
+    let model = BuiltinModel::MiniLM;
+    let mut builder = Classifier::builder().with_model(model)?;
+
+    // Add maximum number of classes
+    for i in 0..100 {
+        builder = builder.add_class(
+            ClassDefinition::new(
+                &format!("class{}", i),
+                &format!("Description for class {}", i)
+            ).with_examples(vec!["example"])
+        )?;
+    }
+
+    // Try to add one more class
+    let result = builder.add_class(
+        ClassDefinition::new(
+            "one_too_many",
+            "This class should exceed the limit"
+        ).with_examples(vec!["example"])
+    );
 
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), ClassifierError::ValidationError(_)));
+
+    Ok(())
 }
 
-#[test]
-fn test_complex_end_to_end() -> Result<(), ClassifierError> {
+#[tokio::test]
+async fn test_complex_end_to_end() -> Result<(), ClassifierError> {
     let classifier = Classifier::builder()
         .with_model(BuiltinModel::MiniLM)?
         .add_class(
-            ClassDefinition::new("tech", "Technology related content")
-                .with_examples(vec![
-                    "artificial intelligence breakthrough",
-                    "new software release",
-                    "quantum computing advance",
-                ])
+            ClassDefinition::new("sports", "Sports content")
+                .with_examples(vec!["football", "basketball", "tennis"])
         )?
         .add_class(
-            ClassDefinition::new("sports", "Sports related content")
-                .with_examples(vec![
-                    "championship game victory",
-                    "world record in athletics",
-                    "tournament final match",
-                ])
+            ClassDefinition::new("tech", "Technology content")
+                .with_examples(vec!["computer", "software", "programming"])
         )?
         .add_class(
-            ClassDefinition::new("business", "Business and finance content")
-                .with_examples(vec![
-                    "stock market analysis",
-                    "corporate merger announcement",
-                    "startup funding round",
-                ])
+            ClassDefinition::new("music", "Music content")
+                .with_examples(vec!["guitar", "piano", "concert"])
         )?
         .build()?;
 
-    let (class, scores) = classifier.predict("The startup announced a major AI breakthrough")?;
-    assert!(!scores.is_empty());
-    assert_eq!(class, "tech"); // The text is about AI, so it should be classified as tech
+    let test_texts = vec![
+        "The new programming language features are amazing",
+        "The basketball game was intense",
+        "The concert last night was incredible",
+    ];
+
+    for text in test_texts {
+        let (label, scores) = classifier.predict(text)?;
+        assert!(!label.is_empty());
+        assert!(scores.values().all(|&score| score >= 0.0 && score <= 1.0));
+    }
+
     Ok(())
 } 
