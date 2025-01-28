@@ -27,10 +27,13 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install system dependencies
+      - name: Setup OpenSSL
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake pkg-config libssl-dev
+          sudo apt-get install -y pkg-config libssl-dev cmake
+          # Verify OpenSSL installation
+          pkg-config --libs openssl
+          pkg-config --cflags openssl
 
       - name: Cache dependencies
         uses: actions/cache@v3
@@ -46,7 +49,6 @@ jobs:
         run: cargo build --verbose
         env:
           ORT_STRATEGY: download
-          OPENSSL_DIR: /usr
 
       - name: Run tests
         run: cargo test --verbose
