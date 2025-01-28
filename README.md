@@ -15,7 +15,7 @@ Note: ONNX Runtime v2.0.0-rc.9 is automatically downloaded and managed by the cr
 
 ## Features
 
-- ⚡️ Blazing fast (~10ms) classification for real-time routing
+- ⚡️ Blazing fast (~10ms in barebone M1) classification for real-time routing
 - 🎯 Optimized for agent routing and conversation classification
 - 🚀 Easy-to-use builder pattern interface
 - 🔧 Support for both built-in and custom ONNX models
@@ -110,29 +110,50 @@ Models are automatically downloaded from HuggingFace when needed:
 
 ## Runtime Configuration
 
-You can fine-tune the ONNX runtime configuration for optimal performance:
+The ONNX runtime configuration is optional. If not specified, the classifier uses a default configuration optimized for most use cases:
 
 ```rust
+// Using default configuration (recommended for most cases)
+let classifier = Classifier::builder()
+    .with_model(BuiltinModel::MiniLM)?
+    .build()?;
+
+// Or with custom runtime configuration
 use prefrontal::{Classifier, RuntimeConfig};
+use ort::session::builder::GraphOptimizationLevel;
 
 let config = RuntimeConfig {
-    // Number of threads for parallel model execution
-    // 0 = let ONNX Runtime decide (recommended)
-    inter_threads: 0,
-
-    // Number of threads for parallel computation within nodes
-    // 0 = let ONNX Runtime decide (recommended)
-    intra_threads: 0,
-
-    // Graph optimization level (Level3 recommended for production)
-    optimization_level: GraphOptimizationLevel::Level3,
+    inter_threads: 4,     // Number of threads for parallel model execution (0 = auto)
+    intra_threads: 2,     // Number of threads for parallel computation within nodes (0 = auto)
+    optimization_level: GraphOptimizationLevel::Level3,  // Maximum optimization
 };
 
 let classifier = Classifier::builder()
-    .with_runtime_config(config)
-    // ... rest of configuration ...
+    .with_runtime_config(config)  // Optional: customize ONNX runtime behavior
+    .with_model(BuiltinModel::MiniLM)?
     .build()?;
 ```
+
+The default configuration (`RuntimeConfig::default()`) uses:
+
+- Automatic thread selection for both inter and intra operations (0 threads = auto)
+- Maximum optimization level (Level3) for best performance
+
+You can customize these settings if needed:
+
+- **inter_threads**: Number of threads for parallel model execution
+
+  - Controls parallelism between independent nodes in the model graph
+  - Set to 0 to let ONNX Runtime automatically choose based on system resources
+
+- **intra_threads**: Number of threads for parallel computation within nodes
+
+  - Controls parallelism within individual operations like matrix multiplication
+  - Set to 0 to let ONNX Runtime automatically choose based on system resources
+
+- **optimization_level**: The level of graph optimization to apply
+  - Higher levels perform more aggressive optimizations but may take longer to compile
+  - Level3 (maximum) is recommended for production use
 
 ## Custom Models
 
@@ -230,9 +251,11 @@ println!("Number of departments: {}", info.num_classes);
 
 Each class requires:
 
-- A unique label that identifies the group
-- A description that explains the category
-- Optional examples to help train the classifier
+- A unique label that identifies the group (non-empty)
+- A description that explains the category (non-empty, max 1000 characters)
+- At least one example (when using examples)
+- No empty example texts
+- Maximum of 100 classes per classifier
 
 ## Error Handling
 
@@ -245,6 +268,8 @@ pub enum ClassifierError {
     BuildError(String),       // Construction errors
     PredictionError(String),  // Prediction-time errors
     ValidationError(String),  // Input validation errors
+    DownloadError(String),    // Model download errors
+    IoError(String),         // File system errors
 }
 ```
 

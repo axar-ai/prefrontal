@@ -89,17 +89,26 @@ pub struct ClassifierBuilder {
 }
 
 impl TextEmbedding for ClassifierBuilder {
+    /// Returns a reference to the tokenizer if it exists
     fn tokenizer(&self) -> Option<&Tokenizer> {
         self.tokenizer.as_ref()
     }
     
+    /// Returns a reference to the ONNX session if it exists
     fn session(&self) -> Option<&Session> {
         self.session.as_ref()
     }
 }
 
 impl ClassifierBuilder {
-    /// Creates a new ClassifierBuilder
+    /// Creates a new empty ClassifierBuilder instance with default configuration
+    /// 
+    /// # Example
+    /// ```
+    /// use prefrontal::ClassifierBuilder;
+    /// 
+    /// let builder = ClassifierBuilder::new();
+    /// ```
     pub fn new() -> Self {
         Self {
             model_path: None,
@@ -114,12 +123,42 @@ impl ClassifierBuilder {
     }
 
     /// Sets the runtime configuration for ONNX model execution
+    /// 
+    /// # Arguments
+    /// * `config` - The RuntimeConfig containing settings for ONNX Runtime execution
+    /// 
+    /// # Example
+    /// ```
+    /// use prefrontal::{ClassifierBuilder, RuntimeConfig};
+    /// 
+    /// let config = RuntimeConfig::default();
+    /// let builder = ClassifierBuilder::new()
+    ///     .with_runtime_config(config);
+    /// ```
     pub fn with_runtime_config(mut self, config: RuntimeConfig) -> Self {
         self.runtime_config = config;
         self
     }
 
-    /// Sets the model to use for classification
+    /// Sets the model to use for classification using a built-in model type
+    /// 
+    /// # Arguments
+    /// * `model` - The BuiltinModel variant to use (e.g., MiniLM)
+    /// 
+    /// # Returns
+    /// * `Result<Self, ClassifierError>` - The builder instance if successful, or an error if:
+    ///   - The model paths are already set
+    ///   - The model is not downloaded
+    ///   - The model or tokenizer failed to load
+    ///   - The model structure is invalid
+    /// 
+    /// # Example
+    /// ```
+    /// use prefrontal::{ClassifierBuilder, BuiltinModel};
+    /// 
+    /// let builder = ClassifierBuilder::new()
+    ///     .with_model(BuiltinModel::MiniLM);
+    /// ```
     pub fn with_model(mut self, model: BuiltinModel) -> Result<Self, ClassifierError> {
         if self.model_path.is_some() || self.tokenizer_path.is_some() {
             return Err(ClassifierError::BuildError("Model and tokenizer paths already set".to_string()));
@@ -168,7 +207,34 @@ impl ClassifierBuilder {
         Ok(self)
     }
 
-    /// Sets a custom model and tokenizer path with configurable sequence length
+    /// Sets a custom model and tokenizer path for the classifier
+    /// 
+    /// # Arguments
+    /// * `model_path` - Path to the ONNX model file
+    /// * `tokenizer_path` - Path to the tokenizer file
+    /// * `max_sequence_length` - Optional maximum sequence length for the model. If not provided,
+    ///   defaults to 256 tokens. This determines the maximum length of text that can be processed
+    ///   before truncation.
+    /// 
+    /// # Returns
+    /// * `Result<Self, ClassifierError>` - The builder instance if successful, or an error if:
+    ///   - The model or tokenizer paths are empty
+    ///   - The paths are already set
+    ///   - The files don't exist
+    ///   - The model or tokenizer failed to load
+    ///   - The model structure is invalid
+    /// 
+    /// # Example
+    /// ```
+    /// use prefrontal::ClassifierBuilder;
+    /// 
+    /// let builder = ClassifierBuilder::new()
+    ///     .with_custom_model(
+    ///         "path/to/model.onnx",
+    ///         "path/to/tokenizer.json",
+    ///         Some(512)  // Custom sequence length
+    ///     );
+    /// ```
     pub fn with_custom_model(
         mut self,
         model_path: &str,
@@ -277,7 +343,29 @@ impl ClassifierBuilder {
         Ok(())
     }
 
-    /// Adds a class to the classifier with examples and description
+    /// Adds a class to the classifier with its definition including label, description, and optional examples
+    /// 
+    /// # Arguments
+    /// * `class` - The ClassDefinition containing the class label, description, and optional examples
+    /// 
+    /// # Returns
+    /// * `Result<Self, ClassifierError>` - The builder instance if successful, or an error if:
+    ///   - The class label is empty
+    ///   - The description is empty or too long
+    ///   - No examples are provided
+    ///   - Any example text is empty
+    ///   - Maximum number of classes (100) is exceeded
+    /// 
+    /// # Example
+    /// ```
+    /// use prefrontal::{ClassifierBuilder, ClassDefinition};
+    /// 
+    /// let builder = ClassifierBuilder::new()
+    ///     .add_class(
+    ///         ClassDefinition::new("tech", "Technology-related content")
+    ///             .with_examples(vec!["programming", "software"])
+    ///     );
+    /// ```
     pub fn add_class(mut self, class: ClassDefinition) -> Result<Self, ClassifierError> {
         const MAX_CLASSES: usize = 100;
         
@@ -305,7 +393,31 @@ impl ClassifierBuilder {
         Ok(self)
     }
 
-    /// Builds the classifier, consuming the builder
+    /// Builds and returns the final Classifier instance
+    /// 
+    /// # Returns
+    /// * `Result<Classifier, ClassifierError>` - The constructed Classifier if successful, or an error if:
+    ///   - No model and tokenizer paths are set
+    ///   - No classes have been added
+    ///   - Model characteristics are not set
+    ///   - Failed to generate embeddings for any class examples
+    /// 
+    /// # Example
+    /// ```no_run
+    /// # use std::error::Error;
+    /// # fn main() -> Result<(), Box<dyn Error>> {
+    /// use prefrontal::{ClassifierBuilder, BuiltinModel, ClassDefinition};
+    /// 
+    /// let classifier = ClassifierBuilder::new()
+    ///     .with_model(BuiltinModel::MiniLM)?
+    ///     .add_class(
+    ///         ClassDefinition::new("tech", "Technology content")
+    ///             .with_examples(vec!["programming", "software"])
+    ///     )?
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn build(mut self) -> Result<Classifier, ClassifierError> {
         if self.model_path.is_none() || self.tokenizer_path.is_none() {
             return Err(ClassifierError::BuildError("Model and tokenizer paths must be set".to_string()));
@@ -372,6 +484,14 @@ impl ClassifierBuilder {
     }
 
     /// Validates that the model has the expected input/output structure
+    /// 
+    /// # Arguments
+    /// * `session` - The ONNX Runtime session to validate
+    /// 
+    /// # Returns
+    /// * `Result<(), ClassifierError>` - Ok if validation passes, or an error if:
+    ///   - The model doesn't have the required input tensors
+    ///   - The model doesn't have any output tensors
     fn validate_model(session: &Session) -> Result<(), ClassifierError> {
         // Check inputs
         let inputs = &session.inputs;
