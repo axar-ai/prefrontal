@@ -210,4 +210,58 @@ async fn test_semantic_similarity() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(class, "positive");  // Should classify as positive due to semantic similarity
     assert!(scores["positive"] > 0.0);
     Ok(())
+}
+
+#[tokio::test]
+async fn test_custom_model() -> Result<(), Box<dyn std::error::Error>> {
+    // First ensure we have a model we can use as "custom"
+    let manager = ModelManager::new_default()?;
+    let model = BuiltinModel::MiniLM;
+    ensure_model_exists(&manager, model).await?;
+
+    let model_path = manager.get_model_path(model);
+    let tokenizer_path = manager.get_tokenizer_path(model);
+
+    // Test custom model initialization
+    let classifier = Classifier::builder()
+        .with_custom_model(
+            model_path.to_str().unwrap(),
+            tokenizer_path.to_str().unwrap(),
+            Some(256)  // Set custom sequence length
+        )?
+        .add_class(
+            ClassDefinition::new("test", "Test class")
+                .with_examples(vec!["example text"])
+        )?
+        .build()?;
+
+    // Verify the classifier works
+    let (label, scores) = classifier.predict("test input")?;
+    assert_eq!(label, "test");
+    assert!(scores["test"] > 0.0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_custom_model_validation() -> Result<(), Box<dyn std::error::Error>> {
+    // Test with non-existent paths
+    let result = Classifier::builder()
+        .with_custom_model(
+            "non_existent_model.onnx",
+            "non_existent_tokenizer.json",
+            None
+        );
+    assert!(result.is_err());
+
+    // Test with empty paths
+    let result = Classifier::builder()
+        .with_custom_model(
+            "",
+            "",
+            None
+        );
+    assert!(result.is_err());
+
+    Ok(())
 } 
