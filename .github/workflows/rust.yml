@@ -9,6 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  RUST_LOG: debug
+  # Set a specific cache directory for model downloads in CI
+  PREFRONTAL_CACHE: /tmp/prefrontal-cache
 
 jobs:
   test:
@@ -16,8 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          lfs: true # Enable Git LFS for large model files
 
       - name: Install latest stable
         uses: actions-rs/toolchain@v1
@@ -38,17 +39,18 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            /tmp/prefrontal-cache  # Cache downloaded model files
+          key: ${{ runner.os }}-cargo-deps-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build
         run: cargo build --verbose
         env:
-          # Let ort-sys build ONNX Runtime from source
           ORT_STRATEGY: download
-          # Use system SSL for downloading
           OPENSSL_DIR: /usr
 
       - name: Run tests
         run: cargo test --verbose
         env:
           RUST_LOG: debug
+          # Ensure tests run sequentially to avoid model download conflicts
+          RUST_TEST_THREADS: 1

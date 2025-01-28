@@ -7,11 +7,36 @@ A blazing fast text classifier for real-time agent routing, built in Rust. Prefr
 To use Prefrontal in your project, you need:
 
 1. **Build Dependencies**
+
    - Linux: `sudo apt-get install cmake pkg-config libssl-dev`
    - macOS: `brew install cmake pkg-config openssl`
    - Windows: Install CMake and OpenSSL
 
+2. **Runtime Requirements**
+   - Internet connection for first-time model downloads
+   - Models are automatically downloaded and cached
+
 Note: ONNX Runtime v2.0.0-rc.9 is automatically downloaded and managed by the crate.
+
+## Model Downloads
+
+On first use, Prefrontal will automatically download the required model files from HuggingFace:
+
+- Model: `https://huggingface.co/axar-ai/minilm/resolve/main/model.onnx`
+- Tokenizer: `https://huggingface.co/axar-ai/minilm/resolve/main/tokenizer.json`
+
+The files are cached locally (see [Model Cache Location](#model-cache-location) section). You can control the download behavior using the `ModelManager`:
+
+```rust
+let manager = ModelManager::new_default()?;
+let model = BuiltinModel::MiniLM;
+
+// Check if model is already downloaded
+if !manager.is_model_downloaded(model) {
+    println!("Downloading model...");
+    manager.download_model(model).await?;
+}
+```
 
 ## Features
 
@@ -102,11 +127,6 @@ The MiniLM model is a small and efficient model optimized for text classificatio
 - **Model Size**: ~85MB
   - Compact size for efficient deployment
   - Good balance of speed and accuracy
-
-Models are automatically downloaded from HuggingFace when needed:
-
-- Model: `https://huggingface.co/axar-ai/minilm/resolve/main/model.onnx`
-- Tokenizer: `https://huggingface.co/axar-ai/minilm/resolve/main/tokenizer.json`
 
 ## Runtime Configuration
 
