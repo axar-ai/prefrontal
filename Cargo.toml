@@ -9,8 +9,8 @@ homepage = "https://axar.ai"
 repository = "https://github.com/axar-ai/prefrontal"
 readme = "README.md"
 license = "Apache-2.0"
-keywords = ["nlp", "classification", "machine-learning", "text-processing", "routing", "agent"]
-categories = ["text-processing", "ai", "algorithms"]
+keywords = ["llm", "classification", "machine-learning", "nlp", "agent"]
+categories = ["text-processing", "parsing", "algorithms"]
 
 [lib]
 name = "prefrontal"
