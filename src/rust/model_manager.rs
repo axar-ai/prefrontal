@@ -9,7 +9,7 @@ use sha2::{Sha256, Digest};
 use dirs;
 use log;
 
-use crate::BuiltinModel;
+use crate::models::{BuiltinModel, ModelInfo};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModelError {
@@ -27,15 +27,6 @@ pub enum ModelError {
         expected: String,
         actual: String,
     },
-}
-
-#[derive(Debug, Clone)]
-pub struct ModelInfo {
-    pub name: String,
-    pub model_url: String,
-    pub tokenizer_url: String,
-    pub model_hash: String,
-    pub tokenizer_hash: String,
 }
 
 #[derive(Clone)]

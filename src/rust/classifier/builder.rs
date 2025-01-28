@@ -7,7 +7,7 @@ use log::{info, error};
 
 use super::error::ClassifierError;
 use super::embedding::TextEmbedding;
-use super::model::Classifier;
+use super::classifier::Classifier;
 use super::utils::{normalize_vector, average_vectors};
 use crate::{BuiltinModel, ModelCharacteristics, runtime::{RuntimeConfig, create_session_builder}, ModelManager};
 

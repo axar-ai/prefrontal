@@ -3,12 +3,12 @@ use std::sync::Arc;
 
 mod error;
 mod embedding;
-mod model;
+mod classifier;
 pub mod builder;
 mod utils;
 
 pub use error::ClassifierError;
-pub use model::Classifier;
+pub use classifier::Classifier;
 pub use builder::{ClassifierBuilder, ClassDefinition};
 
 /// Information about the current state and configuration of a classifier
